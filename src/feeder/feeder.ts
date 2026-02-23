@@ -1,19 +1,19 @@
 // Feeder：根据 URL 生成 RSS，支持自生成（list→detail）与转发（TODO）
 
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { cacheKey } from "../cacher/index.js";
 import { fetchHtml } from "../fetcher/index.js";
 import { parseHtml } from "../parser/index.js";
 import { extractItem } from "../extractor/index.js";
 import { preCheckAuth } from "../fetcher/index.js";
-import { getSite, toAuthFlow, getProxyForSite } from "../sites/index.js";
+import { getSite, toAuthFlow, getProxy, getRefreshStrategy } from "../sites/index.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 import { buildRssXml } from "../feed/index.js";
 import type { RssChannel, RssEntry } from "../feed/types.js";
 import type { FeedItem } from "../types/feedItem.js";
 import type { FeederConfig, FeederResult } from "./types.js";
+import { upsertItems, updateItemContent } from "../db/index.js";
 
 
 const FEEDS_SUBDIR = "feeds";
@@ -28,24 +28,42 @@ interface FeedCache {
 }
 
 
-/** 从 feeds 缓存读取 XML，maxAgeMs 时用文件 mtime 判断是否过期 */
-async function readFeedsCache(cacheDir: string, key: string, maxAgeMs?: number): Promise<string | null> {
-  const xmlPath = join(cacheDir, FEEDS_SUBDIR, `${key}.xml`);
+/** 从 feeds 缓存读取 XML：key 本身已编码时间窗口，存在即有效，无需 mtime 检查 */
+async function readFeedsCache(cacheDir: string, key: string): Promise<string | null> {
   try {
-    const [xml, st] = await Promise.all([readFile(xmlPath, "utf-8"), stat(xmlPath)]);
-    if (maxAgeMs != null && Date.now() - st.mtimeMs > maxAgeMs) return null;
-    return xml;
+    return await readFile(join(cacheDir, FEEDS_SUBDIR, `${key}.xml`), "utf-8");
   } catch {
     return null;
   }
 }
 
 
-/** 将 feeds 缓存写入（仅 XML） */
+/** 从 feeds 缓存读取 items JSON，与 XML 同目录同 key，扩展名不同 */
+async function readItemsCache(cacheDir: string, key: string): Promise<FeedItem[] | null> {
+  try {
+    const raw = await readFile(join(cacheDir, FEEDS_SUBDIR, `${key}.items.json`), "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return (parsed as FeedItem[]).map((item) => ({ ...item, pubDate: item.pubDate ? new Date(item.pubDate) : new Date() }));
+  } catch {
+    return null;
+  }
+}
+
+
+/** 将 feeds XML 写入缓存 */
 async function writeFeedsCache(cacheDir: string, key: string, xml: string): Promise<void> {
   const dir = join(cacheDir, FEEDS_SUBDIR);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, `${key}.xml`), xml, "utf-8");
+}
+
+
+/** 将 items 写入缓存（与 XML 同目录，.items.json 后缀） */
+async function writeItemsCache(cacheDir: string, key: string, items: FeedItem[]): Promise<void> {
+  const dir = join(cacheDir, FEEDS_SUBDIR);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${key}.items.json`), JSON.stringify(items, null, 2), "utf-8");
 }
 
 
@@ -84,18 +102,21 @@ function buildErrorRss(listUrl: string, message: string): string {
 
 
 /** 同一 URL 的生成任务去重 */
-const generatingKeys = new Map<string, Promise<string>>();
+const generatingKeys = new Map<string, Promise<{ xml: string; items: FeedItem[] }>>();
 /** 生成中的状态，供刷新时展示已抓取/待抓取 */
 const generatingState = new Map<string, FeedCache>();
 
 
 /** 执行生成流程：先抓取列表并立即返回，若有 includeContent 则后台抓取详情并更新缓存。fetch/parse/extract 仅写缓存（供分析），不读缓存，避免错误传播；仅 feed 级缓存用于复用 */
-async function generateAndCache(listUrl: string, key: string, config: FeederConfig): Promise<string> {
+async function generateAndCache(listUrl: string, key: string, config: FeederConfig): Promise<{ xml: string; items: FeedItem[] }> {
   const { cacheDir = "cache", includeContent = true, headless } = config;
   const site = getSite(listUrl)!;
-  const proxy = getProxyForSite(site.id, listUrl);
+  const proxy = getProxy(listUrl);
   const listRes = await fetchHtml(listUrl, { cacheDir, useCache: false, authFlow: toAuthFlow(site), headless, proxy, browserContext: site.browserContext ?? undefined });
-  if (listRes.status !== 200) return buildErrorRss(listUrl, `抓取失败: HTTP ${listRes.status}`);
+  if (listRes.status !== 200) {
+    const xml = buildErrorRss(listUrl, `抓取失败: HTTP ${listRes.status}`);
+    return { xml, items: [] };
+  }
   const parsed = await parseHtml(listRes.body, {
     url: listRes.finalUrl ?? listUrl,
     customParser: site.parser ?? undefined,
@@ -112,43 +133,57 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   };
   const cache: FeedCache = { items, startedAt: Date.now(), listUrl, channel };
   generatingState.set(key, cache);
-  if (cacheDir) await writeFeedsCache(cacheDir, key, buildRssFromCache(cache));
+  const initialXml = buildRssFromCache(cache);
+  if (cacheDir) {
+    await writeFeedsCache(cacheDir, key, initialXml);
+    await writeItemsCache(cacheDir, key, items);
+  }
+  upsertItems(items, listUrl).catch((err) => console.warn("[db] upsertItems 失败:", err instanceof Error ? err.message : err));
   if (includeContent && items.length > 0 && site.extractor != null) {
     const extractorConfig = { cacheDir, useCache: false, customExtractor: site.extractor };
-    const fetchConfig = { cacheDir, headless, proxy: getProxyForSite(site.id), browserContext: site.browserContext ?? undefined };
+    const fetchConfig = { cacheDir, headless, proxy: getProxy(listUrl), browserContext: site.browserContext ?? undefined };
     (async () => {
       for (let i = 0; i < items.length; i++) {
         try {
           items[i] = await extractItem(items[i], extractorConfig, fetchConfig);
+          updateItemContent(items[i]).catch((err) => console.warn("[db] updateItemContent 失败:", err instanceof Error ? err.message : err));
         } catch (err) {
           console.warn(`[feeder] 提取失败 ${items[i].link}:`, err instanceof Error ? err.message : err);
           items[i] = { ...items[i], extractionFailed: true };
         }
         generatingState.set(key, { ...cache, items: [...items] });
       }
-      if (cacheDir) await writeFeedsCache(cacheDir, key, buildRssFromCache({ ...cache, items }));
+      const finalXml = buildRssFromCache({ ...cache, items });
+      if (cacheDir) {
+        await writeFeedsCache(cacheDir, key, finalXml);
+        await writeItemsCache(cacheDir, key, items);
+      }
       generatingState.delete(key);
     })().catch((err) => console.warn("[feeder] 后台抓取详情失败:", err instanceof Error ? err.message : err)).finally(() => generatingKeys.delete(key));
   } else {
     generatingKeys.delete(key);
     generatingState.delete(key);
   }
-  return buildRssFromCache(cache);
+  return { xml: initialXml, items };
 }
 
 
-/** 根据 list URL 生成 RSS：检查缓存 → 未命中则抓取列表后立即返回，详情在后台补全 */
+/** 根据 list URL 生成 RSS：按站点刷新策略生成时间窗口 key，命中缓存则直接返回，否则抓取并缓存 */
 export async function getRss(listUrl: string, config: FeederConfig = {}): Promise<FeederResult> {
-  const { cacheDir = "cache", feedCacheMaxAgeMs = 60 * 60 * 1000, includeContent: _includeContent = true } = config;
-  const key = createHash("sha256").update(listUrl).digest("hex");
-  if (cacheDir) {
-    const inProgress = generatingState.get(key);
-    if (inProgress != null) return { xml: buildRssFromCache(inProgress), fromCache: false };
-    const cached = await readFeedsCache(cacheDir, key, feedCacheMaxAgeMs);
-    if (cached != null) return { xml: cached, fromCache: true };
-  }
+  const { cacheDir = "cache" } = config;
   const site = getSite(listUrl);
   if (!site) throw new NotFoundError(`无匹配的站点: ${listUrl}`);
+  const strategy = getRefreshStrategy(listUrl);
+  const key = cacheKey(listUrl, strategy);
+  if (cacheDir) {
+    const inProgress = generatingState.get(key);
+    if (inProgress != null) return { xml: buildRssFromCache(inProgress), fromCache: false, items: inProgress.items };
+    const [cachedXml, cachedItems] = await Promise.all([
+      readFeedsCache(cacheDir, key),
+      readItemsCache(cacheDir, key),
+    ]);
+    if (cachedXml != null) return { xml: cachedXml, fromCache: true, items: cachedItems ?? [] };
+  }
   const authFlow = toAuthFlow(site);
   if (authFlow && cacheDir) {
     const passed = await preCheckAuth(authFlow, cacheDir);
@@ -159,6 +194,12 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
     task = generateAndCache(listUrl, key, config);
     generatingKeys.set(key, task);
   }
-  const xml = await task;
-  return { xml, fromCache: false };
+  const { xml, items } = await task;
+  return { xml, fromCache: false, items };
+}
+
+
+/** 根据 list URL 获取条目列表（getRss 的轻量包装，仅返回 items） */
+export async function getItems(listUrl: string, config: FeederConfig = {}): Promise<FeedItem[]> {
+  return (await getRss(listUrl, config)).items;
 }

@@ -4,8 +4,8 @@ import type { BrowserContext } from "puppeteer-core";
 import type { AuthFlow, CheckAuthFn } from "../auth/index.js";
 
 
-/** 缓存键策略：决定 key 的组成，从而决定缓存生命周期 */
-export type CacheKeyStrategy = "forever" | "daily" | "hourly";
+/** 缓存键策略：forever=仅 sha256(url)；其余值将时间窗口嵌入 key，窗口过期后 key 自然失效，无需主动 TTL 检查 */
+export type CacheKeyStrategy = "forever" | "10min" | "30min" | "1h" | "6h" | "12h" | "1day" | "3day" | "7day";
 
 
 export interface RequestConfig {

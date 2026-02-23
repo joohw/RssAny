@@ -1,5 +1,7 @@
 node_modules
 dist
+webui/build
+webui/.svelte-kit
 .pnpm-store
 *.log
 .DS_Store
@@ -11,3 +13,4 @@ coverage
 *.tsbuildinfo
 config/feeds.json
 cache/
+.rssany/

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>信息流 - RssAny</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0 }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #111; height: 100vh; overflow: hidden; display: flex; flex-direction: column }
+    .topbar { height: 48px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; padding: 0 1.25rem; gap: 1.5rem; flex-shrink: 0; z-index: 20 }
+    .topbar-brand { font-size: 1rem; font-weight: 700; color: #111; text-decoration: none; letter-spacing: -0.02em }
+    .topbar-nav { display: flex; gap: 1rem; margin-left: auto; align-items: center }
+    .topbar-nav a { font-size: 0.8125rem; color: #555; text-decoration: none }
+    .topbar-nav a:hover { color: #111 }
+    .topbar-nav a.active { color: #111; font-weight: 500 }
+
+    .feed-wrap { flex: 1; display: flex; overflow: hidden; max-width: 720px; width: 100%; margin: 0 auto }
+    .feed-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb }
+
+    .feed-header { padding: 0.875rem 1.25rem; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0 }
+    .feed-header h2 { font-size: 0.9375rem; font-weight: 600 }
+    .feed-header-right { display: flex; align-items: center; gap: 0.75rem }
+    .refresh-btn { font-size: 0.75rem; color: #888; background: none; border: none; cursor: pointer; padding: 0.2rem 0.4rem; border-radius: 4px }
+    .refresh-btn:hover { color: #111; background: #f5f5f5 }
+    .refresh-btn.loading { opacity: 0.5; pointer-events: none }
+
+    .filter-bar { display: flex; gap: 0.25rem; overflow-x: auto; padding: 0.5rem 1.25rem; border-bottom: 1px solid #f0f0f0; flex-shrink: 0 }
+    .filter-bar::-webkit-scrollbar { display: none }
+    .filter-chip { padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.75rem; cursor: pointer; border: 1px solid #e0e0e0; background: #fff; color: #555; white-space: nowrap; transition: all 0.15s; font-family: inherit }
+    .filter-chip:hover { border-color: #aaa; color: #111 }
+    .filter-chip.active { background: #111; color: #fff; border-color: #111 }
+
+    .feed-list { flex: 1; overflow-y: auto }
+    .feed-list::-webkit-scrollbar { width: 4px }
+    .feed-list::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px }
+
+    .item { padding: 1rem 1.25rem; border-bottom: 1px solid #f3f3f3; transition: background 0.1s }
+    .item:hover { background: #fafafa }
+    .item-sub { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; color: #999; margin-bottom: 0.3rem }
+    .item-title { font-size: 0.9rem; font-weight: 500; color: #111; text-decoration: none; display: block; line-height: 1.45; margin-bottom: 0.3rem }
+    .item-title:hover { color: #0969da }
+    .item-summary { font-size: 0.8rem; color: #666; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 0.4rem }
+    .item-meta { display: flex; align-items: center; gap: 0.6rem; font-size: 0.725rem; color: #bbb }
+    .item-author { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .item-dot { width: 2px; height: 2px; background: #ccc; border-radius: 50%; flex-shrink: 0 }
+
+    .state { padding: 3rem 1.5rem; text-align: center; color: #aaa; font-size: 0.875rem; line-height: 1.7 }
+    .state a { color: #0969da; text-decoration: none }
+    .state a:hover { text-decoration: underline }
+
+    @media (max-width: 600px) { .feed-wrap { max-width: 100% } .feed-col { border: none } }
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <a class="topbar-brand" href="/">RssAny</a>
+    <nav class="topbar-nav">
+      <a href="/feed" class="active">信息流</a>
+      <a href="/subscriptions">订阅管理</a>
+      <a href="/plugins">插件</a>
+    </nav>
+  </div>
+
+  <div class="feed-wrap">
+    <div class="feed-col">
+      <div class="feed-header">
+        <h2>信息流</h2>
+        <div class="feed-header-right">
+          <span id="item-count" style="font-size:0.75rem;color:#bbb"></span>
+          <button class="refresh-btn" id="refresh-btn" onclick="loadFeed()">↺ 刷新</button>
+        </div>
+      </div>
+      <div class="filter-bar" id="filter-bar"></div>
+      <div class="feed-list" id="feed-list">
+        <div class="state" id="feed-state">加载中…</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allItems = [];
+    let activeFilter = 'all';
+
+    function relativeTime(dateStr) {
+      if (!dateStr) return '';
+      const diff = Date.now() - new Date(dateStr).getTime();
+      const m = Math.floor(diff / 60000);
+      if (m < 1) return '刚刚';
+      if (m < 60) return m + ' 分钟前';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + ' 小时前';
+      const d = Math.floor(h / 24);
+      if (d < 30) return d + ' 天前';
+      return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+    function renderFilter(subs) {
+      const bar = document.getElementById('filter-bar');
+      bar.innerHTML = '';
+      const allBtn = document.createElement('button');
+      allBtn.className = 'filter-chip' + (activeFilter === 'all' ? ' active' : '');
+      allBtn.textContent = '全部';
+      allBtn.onclick = () => { activeFilter = 'all'; renderItems(); renderFilter(subs); };
+      bar.appendChild(allBtn);
+      subs.forEach(sub => {
+        const chip = document.createElement('button');
+        chip.className = 'filter-chip' + (activeFilter === sub.id ? ' active' : '');
+        chip.textContent = sub.title || sub.id;
+        chip.onclick = () => { activeFilter = sub.id; renderItems(); renderFilter(subs); };
+        bar.appendChild(chip);
+      });
+    }
+
+    function renderItems() {
+      const list = document.getElementById('feed-list');
+      const state = document.getElementById('feed-state');
+      const items = activeFilter === 'all' ? allItems : allItems.filter(it => it._subId === activeFilter);
+      document.getElementById('item-count').textContent = items.length ? items.length + ' 条' : '';
+      if (items.length === 0) {
+        list.querySelectorAll('.item').forEach(c => c.remove());
+        state.style.display = '';
+        state.innerHTML = activeFilter === 'all'
+          ? '暂无内容，请先<a href="/subscriptions">添加订阅</a>'
+          : '该订阅暂无内容';
+        return;
+      }
+      state.style.display = 'none';
+      list.querySelectorAll('.item').forEach(c => c.remove());
+      items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'item';
+        const summaryHtml = item.summary ? `<p class="item-summary">${escapeHtml(item.summary)}</p>` : '';
+        const authorHtml = item.author ? `<span class="item-author">${escapeHtml(item.author)}</span><span class="item-dot"></span>` : '';
+        el.innerHTML = `
+          <div class="item-sub">${escapeHtml(item._subTitle || item._subId || '')}</div>
+          <a class="item-title" href="${escapeHtml(item.link)}" target="_blank" rel="noopener">${escapeHtml(item.title)}</a>
+          ${summaryHtml}
+          <div class="item-meta">${authorHtml}<span>${relativeTime(item.pubDate)}</span></div>`;
+        list.appendChild(el);
+      });
+    }
+
+    async function loadFeed() {
+      const btn = document.getElementById('refresh-btn');
+      const state = document.getElementById('feed-state');
+      btn.classList.add('loading');
+      btn.textContent = '↺ 加载中…';
+      state.style.display = '';
+      state.textContent = '加载中…';
+      document.getElementById('feed-list').querySelectorAll('.item').forEach(c => c.remove());
+      try {
+        const subsRes = await fetch('/api/subscription');
+        const subs = await subsRes.json();
+        if (!Array.isArray(subs) || subs.length === 0) {
+          state.innerHTML = '暂无订阅，<a href="/subscriptions">去添加</a>';
+          renderFilter([]);
+          return;
+        }
+        renderFilter(subs);
+        const results = await Promise.allSettled(
+          subs.map(sub => fetch(`/subscription/${encodeURIComponent(sub.id)}`).then(r => r.json()))
+        );
+        allItems = [];
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled' && Array.isArray(r.value.items)) {
+            r.value.items.forEach(item => {
+              allItems.push({ ...item, _subId: subs[i].id, _subTitle: subs[i].title || subs[i].id });
+            });
+          }
+        });
+        allItems.sort((a, b) => new Date(b.pubDate || 0).getTime() - new Date(a.pubDate || 0).getTime());
+        renderItems();
+      } catch (err) {
+        state.textContent = '加载失败: ' + err.message;
+      } finally {
+        btn.classList.remove('loading');
+        btn.textContent = '↺ 刷新';
+      }
+    }
+
+    loadFeed();
+  </script>
+</body>
+
+</html>

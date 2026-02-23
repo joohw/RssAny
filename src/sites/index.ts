@@ -3,11 +3,11 @@
 export type { Site } from "./types.js";
 export { getSiteByUrl, toAuthFlow, matchesListUrl, matchesDetailUrl, computeSpecificity, computeDetailSpecificity } from "./types.js";
 export { loadPlugins } from "./pluginLoader.js";
-export { getProxyForSite, getProxyForUrl, loadProxyConfig } from "./proxyConfig.js";
+export { getSiteConfig, getRefreshStrategy, getProxy, loadSiteConfig, getSiteConfigEntries, upsertSiteConfigEntry, deleteSiteConfigEntry } from "./siteConfig.js";
 import type { Site } from "./types.js";
 import { getSiteByUrl, getSiteForExtraction as getSiteForExtractionImpl } from "./types.js";
 import { loadPlugins } from "./pluginLoader.js";
-import { loadProxyConfig } from "./proxyConfig.js";
+import { loadSiteConfig } from "./siteConfig.js";
 
 
 /** 通用站点：匹配任意 URL，使用 LLM 解析与提取，兜底用 */
@@ -27,12 +27,12 @@ const builtinSites: Site[] = [genericSite];
 export const registeredSites: Site[] = [...builtinSites];
 
 
-/** 初始化站点：加载 plugins/*.rssany.js 并合并到 registeredSites，同时加载代理配置 */
+/** 初始化站点：加载 plugins/*.rssany.js 并合并到 registeredSites，同时加载站点配置 */
 export async function initSites(): Promise<void> {
   const loadedPlugins = await loadPlugins();
   registeredSites.length = 0;
   registeredSites.push(...builtinSites, ...loadedPlugins);
-  await loadProxyConfig();
+  await loadSiteConfig();
 }
 
 
@@ -52,5 +52,3 @@ export function getSiteForExtraction(url: string): Site | undefined {
 export function getSiteById(id: string): Site | undefined {
   return registeredSites.find((s) => s.id === id);
 }
-
-

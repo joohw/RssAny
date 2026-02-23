@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>RssAny</title>
+  <title>Extract - RssAny</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0 }
     body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #111; min-height: 100vh }
@@ -13,14 +13,17 @@
     .topbar-brand { font-size: 1rem; font-weight: 700; color: #111; text-decoration: none; letter-spacing: -0.02em; margin-right: 0.625rem }
     .topbar-github { display: flex; align-items: center; color: #bbb; transition: color 0.15s }
     .topbar-github:hover { color: #111 }
-    .topbar-github svg { display: block }
     .topbar-nav { display: flex; gap: 1rem; margin-left: auto }
-    .topbar-nav a { font-size: 0.8125rem; color: #555; text-decoration: none; padding: 0.25rem 0 }
+    .topbar-nav a { font-size: 0.8125rem; color: #555; text-decoration: none }
     .topbar-nav a:hover { color: #111 }
-    .main { display: flex; flex-direction: column; align-items: center; padding: 5rem 1.5rem 3rem }
-    .hero { text-align: center; margin-bottom: 2.5rem }
-    .hero-title { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.05em; line-height: 1.15; margin-bottom: 0.75rem }
-    .hero-sub { font-size: 0.9375rem; color: #777; line-height: 1.65; max-width: 400px; margin: 0 auto }
+
+    .main { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.5rem 3rem }
+
+    .hero { text-align: center; margin-bottom: 2.25rem }
+    .hero-eyebrow { font-size: 0.75rem; font-weight: 600; color: #bbb; text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 0.5rem }
+    .hero-title { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 0.6rem }
+    .hero-sub { font-size: 0.9rem; color: #777; line-height: 1.6; max-width: 400px; margin: 0 auto }
+
     .form-wrap { width: 100%; max-width: 520px }
     .url-row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem }
     .url-row input { flex: 1; padding: 0.65rem 1rem; border: 1px solid #ddd; border-radius: 8px; font-size: 0.9375rem; outline: none; transition: border 0.15s; min-width: 0; background: #fff }
@@ -32,18 +35,10 @@
     .form-opts input[type=checkbox] { margin: 0; accent-color: #111 }
     .form-opts .hint { font-size: 0.775rem; color: #bbb }
 
-    .try-this { margin-top: 2.25rem; width: 100%; max-width: 520px }
-    .try-this-label { font-size: 0.7rem; font-weight: 600; color: #bbb; text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 0.5rem }
-    .try-this ul { list-style: none; display: flex; flex-direction: column; gap: 0.3rem }
-    .try-this a { color: #0969da; text-decoration: none; font-size: 0.875rem }
-    .try-this a:hover { text-decoration: underline }
+    .info-box { margin-top: 2rem; width: 100%; max-width: 520px; background: #f8f9ff; border: 1px solid #dde4ff; border-radius: 8px; padding: 0.875rem 1.125rem; font-size: 0.8rem; color: #555; line-height: 1.7 }
+    .info-box code { background: #eef; padding: 0.1rem 0.35rem; border-radius: 3px; font-family: monospace }
 
-    .dev-tools { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #e8e8e8; width: 100%; max-width: 520px; display: flex; align-items: center; gap: 0.5rem }
-    .dev-tools-label { font-size: 0.775rem; color: #bbb }
-    .dev-tools a { font-size: 0.8rem; color: #888; text-decoration: none; padding: 0.2rem 0.6rem; border: 1px solid #e0e0e0; border-radius: 5px; transition: all 0.15s }
-    .dev-tools a:hover { color: #111; border-color: #aaa }
-
-    @media (max-width: 600px) { .main { padding: 3rem 1rem 2rem } .hero-title { font-size: 1.75rem } }
+    @media (max-width: 600px) { .main { padding: 2.5rem 1rem 2rem } }
   </style>
 </head>
 
@@ -65,15 +60,16 @@
 
   <div class="main">
     <div class="hero">
-      <h1 class="hero-title">RssAny</h1>
-      <p class="hero-sub">将任意网页转换为 RSS 订阅源<br>支持自定义解析、正文提取与登录态管理</p>
+      <p class="hero-eyebrow">开发工具</p>
+      <h1 class="hero-title">Extract</h1>
+      <p class="hero-sub">从详情页提取完整正文，返回 JSON，用于调试插件 Extractor 规则</p>
     </div>
 
     <div class="form-wrap">
       <form onsubmit="return go()">
         <div class="url-row">
-          <input type="url" id="url-input" placeholder="输入网页地址…" required autocomplete="url">
-          <button type="submit">生成 RSS</button>
+          <input type="url" id="url-input" placeholder="输入文章详情页地址…" required autocomplete="url">
+          <button type="submit">提取</button>
         </div>
         <div class="form-opts">
           <label><input type="checkbox" id="headful"> Headful</label>
@@ -82,19 +78,8 @@
       </form>
     </div>
 
-    <div class="try-this">
-      <p class="try-this-label">示例</p>
-      <ul>
-        <li><a href="/preview?url=https%3A%2F%2Fgithub.com%2Fdeepseek-ai">GitHub deepseek-ai</a></li>
-        <li><a href="/preview?url=https%3A%2F%2Fopenai.com%2Fzh-Hans-CN%2Fnews%2F">OpenAI News (中文)</a></li>
-        <li><a href="/preview?url=https%3A%2F%2Flingowhale.com%2Fchannels%3Fchannel_id%3D67cc08b79a4297b6148b4c3f">LingoWhale Channel</a></li>
-      </ul>
-    </div>
-
-    <div class="dev-tools">
-      <span class="dev-tools-label">开发工具</span>
-      <a href="/parse">Parse</a>
-      <a href="/extractor">Extract</a>
+    <div class="info-box">
+      调用 <code>GET /extractor/{url}</code>，优先使用插件自定义 Extractor，其次尝试 Readability，最后回退到 LLM 提取。返回 title、author、summary、content、pubDate 等字段，可用于验证正文提取效果。
     </div>
   </div>
 
@@ -104,8 +89,7 @@
       const headful = document.getElementById('headful').checked;
       if (!u) return false;
       const fullUrl = u.startsWith('http') ? u : 'https://' + u;
-      const base = '/preview?url=' + encodeURIComponent(fullUrl);
-      window.open(base + (headful ? '&headless=false' : ''), '_blank');
+      window.open('/extractor/' + encodeURIComponent(fullUrl) + (headful ? '?headless=false' : ''), '_blank');
       return false;
     }
   </script>

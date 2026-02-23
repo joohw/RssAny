@@ -3,10 +3,11 @@
 import "dotenv/config";
 import { spawn } from "node:child_process";
 import { watch } from "node:fs";
-import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { createApp } from "./router.js";
 import { initSites } from "../sites/index.js";
+import { initScheduler } from "../scheduler/index.js";
+import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../config/paths.js";
 
 
 const PORT = Number(process.env.PORT) || 3751;
@@ -43,9 +44,8 @@ function startCloudflareTunnel(): void {
 }
 
 
-/** 开发模式：监听插件文件变化并重新加载（防抖 300ms） */
+/** 开发模式：监听内置与用户插件目录变化并自动重载（防抖 300ms） */
 function watchPlugins(): void {
-  const pluginsDir = join(process.cwd(), "plugins");
   let reloadTimer: NodeJS.Timeout | null = null;
   const debouncedReload = async () => {
     if (reloadTimer) clearTimeout(reloadTimer);
@@ -57,24 +57,26 @@ function watchPlugins(): void {
       }
     }, 300);
   };
-  const watcher = watch(
-    pluginsDir,
-    { recursive: false },
-    (eventType, filename) => {
-      if (!filename || !filename.endsWith(".rssany.js")) return;
-      if (eventType === "rename" || eventType === "change") {
-        debouncedReload();
-      }
-    }
-  );
-  watcher.on("error", (err) => {
-    console.warn(`[Dev] 插件监听错误:`, err.message);
-  });
+  for (const dir of [BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR]) {
+    const watcher = watch(dir, { recursive: false }, (eventType, filename) => {
+      if (!filename || !PLUGIN_WATCH_EXTS.some((ext) => filename.endsWith(ext))) return;
+      if (eventType === "rename" || eventType === "change") debouncedReload();
+    });
+    watcher.on("error", (err) => {
+      console.warn(`[Dev] 插件监听错误 (${dir}):`, err.message);
+    });
+  }
 }
 
 
+const PLUGIN_WATCH_EXTS = [".rssany.js", ".rssany.ts"];
+
+
 async function main() {
+  await initUserDir();
   await initSites();
+  const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
+  await initScheduler(CACHE_DIR);
   const app = createApp();
   serve({ fetch: app.fetch, port: PORT });
   console.log(`RssAny: http://127.0.0.1:${PORT}/`);

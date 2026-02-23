@@ -43,14 +43,42 @@ function urlHash(url: string): string {
 }
 
 
-// 根据 URL 与策略生成缓存 key：forever=仅 sha256(url)；daily=YYYY-MM-DD-{hash}；hourly=YYYY-MM-DDTHH-{hash}（均为 UTC）
+// 将时间映射到对应策略的时间窗口前缀（UTC）
+function timeBucket(strategy: CacheKeyStrategy, now: Date): string {
+  const y = now.getUTCFullYear();
+  const mo = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
+  const h = now.getUTCHours();
+  const hs = String(h).padStart(2, "0");
+  const min = now.getUTCMinutes();
+  if (strategy === "10min") return `${y}-${mo}-${d}T${hs}:${String(Math.floor(min / 10) * 10).padStart(2, "0")}`;
+  if (strategy === "30min") return `${y}-${mo}-${d}T${hs}:${min < 30 ? "00" : "30"}`;
+  if (strategy === "1h") return `${y}-${mo}-${d}T${hs}`;
+  if (strategy === "6h") return `${y}-${mo}-${d}T${String(Math.floor(h / 6) * 6).padStart(2, "0")}`;
+  if (strategy === "12h") return `${y}-${mo}-${d}T${h < 12 ? "00" : "12"}`;
+  if (strategy === "1day") return `${y}-${mo}-${d}`;
+  if (strategy === "3day") {
+    const epochDay = Math.floor(now.getTime() / 86400000);
+    return `d${Math.floor(epochDay / 3) * 3}`;
+  }
+  if (strategy === "7day") {
+    const adjusted = new Date(now);
+    adjusted.setUTCHours(0, 0, 0, 0);
+    adjusted.setUTCDate(adjusted.getUTCDate() + 3 - ((adjusted.getUTCDay() + 6) % 7));
+    const week1 = new Date(Date.UTC(adjusted.getUTCFullYear(), 0, 4));
+    const isoYear = adjusted.getUTCFullYear();
+    const isoWeek = 1 + Math.round(((adjusted.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getUTCDay() + 6) % 7) / 7);
+    return `${isoYear}-W${String(isoWeek).padStart(2, "0")}`;
+  }
+  return "";
+}
+
+
+// 根据 URL 与策略生成缓存 key：forever=仅 sha256(url)；其余=时间窗口前缀-sha256(url)
 export function cacheKey(url: string, strategy: CacheKeyStrategy = "forever", now: Date = new Date()): string {
   const hash = urlHash(url);
   if (strategy === "forever") return hash;
-  const iso = now.toISOString();
-  if (strategy === "daily") return `${iso.slice(0, 10)}-${hash}`;
-  if (strategy === "hourly") return `${iso.slice(0, 13)}-${hash}`;
-  return hash;
+  return `${timeBucket(strategy, now)}-${hash}`;
 }
 
 
