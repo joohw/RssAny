@@ -1,6 +1,6 @@
 // 认证类型：AuthFlow、CheckAuthFn，供 fetcher、feeder 使用
 
-import type { Page } from "puppeteer";
+import type { Page } from "puppeteer-core";
 
 
 /** 检查是否已登录。(page, url) => Promise<boolean>，返回 true 表示已认证，false 表示需登录 */

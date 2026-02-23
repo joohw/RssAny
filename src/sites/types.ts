@@ -1,5 +1,6 @@
 // 站点抽象接口：声明 URL 形态、parser、extractor、auth
 
+import type { BrowserContext } from "puppeteer-core";
 import type { CustomParserFn } from "../parser/parser.js";
 import type { CustomExtractorFn } from "../extractor/types.js";
 import type { AuthFlow, CheckAuthFn } from "../auth/index.js";
@@ -40,18 +41,20 @@ export interface Site {
   loginTimeoutMs?: number | null;
   /** 认证：轮询 checkAuth 间隔毫秒，默认 2000 */
   pollIntervalMs?: number | null;
+  /** 浏览器上下文配置函数：在创建浏览器上下文时调用，可用于设置 cookies、localStorage 等；(context) => Promise<void> */
+  browserContext?: ((context: BrowserContext) => Promise<void>) | null;
 }
 
 
-/** 根据 listUrlPattern 自动计算 URL 匹配具体度（不匹配返回 -1），数值越大越具体 */
+/** 根据 listUrlPattern 自动计算 URL 匹配具体度（不匹配返回 -1），数值越大越具体；字符串模式加 1000 偏移量确保永远优先于正则模式；正则模式用 source.length 区分宽泛与具体 */
 export function computeSpecificity(site: Site, url: string): number {
   if (!matchesListUrl(site, url)) return -1;
   const p = site.listUrlPattern;
   if (typeof p === "string") {
     const pathOnly = p.split("?")[0];
-    return pathOnly.split("/").filter(Boolean).length;
+    return 1000 + pathOnly.split("/").filter(Boolean).length;
   }
-  return 1;
+  return p.source.length;
 }
 
 

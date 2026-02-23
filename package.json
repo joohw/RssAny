@@ -49,6 +49,6 @@
     "jsdom": "^25.0.0",
     "node-html-parser": "^7.0.2",
     "openai": "^4.76.1",
-    "puppeteer": "^24.36.0"
+    "puppeteer-core": "^24.36.0"
   }
 }

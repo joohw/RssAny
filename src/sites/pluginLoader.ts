@@ -1,4 +1,4 @@
-// 插件加载器：从 plugins/*.rssany.js 加载外部站点插件（信任模型）
+// 插件加载器：从 plugins/*.rssany.{js,ts} 加载外部站点插件（信任模型）
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import type { Site } from "./types.js";
 
 
 const PLUGINS_DIR = join(process.cwd(), "plugins");
-const PLUGIN_GLOB = ".rssany.js";
+const PLUGIN_EXTENSIONS = [".rssany.js", ".rssany.ts"];
 
 
 /** 判断对象是否为有效的 Site 实现（插件需提供 parser 与 extractor） */
@@ -23,7 +23,7 @@ function isValidSite(obj: unknown): obj is Site {
 }
 
 
-/** 从 plugins 目录加载所有 *.rssany.js 插件，返回 Site 数组 */
+/** 从 plugins 目录加载所有 *.rssany.{js,ts} 插件，返回 Site 数组 */
 export async function loadPlugins(): Promise<Site[]> {
   const plugins: Site[] = [];
   let entries: { name: string; isFile: () => boolean }[];
@@ -35,7 +35,9 @@ export async function loadPlugins(): Promise<Site[]> {
   }
   for (const e of entries) {
     const name = String(e.name);
-    if (!e.isFile() || !name.endsWith(PLUGIN_GLOB)) continue;
+    if (!e.isFile()) continue;
+    const hasValidExtension = PLUGIN_EXTENSIONS.some((ext) => name.endsWith(ext));
+    if (!hasValidExtension) continue;
     const filePath = join(PLUGINS_DIR, name);
     const url = pathToFileURL(filePath).href;
     try {

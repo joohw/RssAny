@@ -1,9 +1,10 @@
 // 使用无头浏览器（Puppeteer）拉取页面，缓存逻辑在 cacher 中
 
 import { join } from "node:path";
-import puppeteer, { type Browser, type Page } from "puppeteer";
+import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
 import { readCached, writeCached } from "../cacher/index.js";
 import { applyPurify } from "./purify.js";
+import { findChromeExecutable } from "./cdp.js";
 import type { AuthFlow } from "../auth/index.js";
 import type { RequestConfig, StructuredHtmlResult } from "./types.js";
 
@@ -14,7 +15,7 @@ function resolveProxy(config?: { proxy?: string }): string | undefined {
 }
 
 
-/** 从代理字符串解析出 serverUrl（供 Chrome --proxy-server）和可选的账号密码（供 407 认证）；支持 http://user:pass@host:port */
+/** 从代理字符串解析出 serverUrl 和可选账号密码；支持 http://user:pass@host:port */
 function parseProxy(proxy: string): { serverUrl: string; username?: string; password?: string } {
   const u = new URL(proxy);
   const serverUrl = u.port ? `${u.protocol}//${u.hostname}:${u.port}` : `${u.protocol}//${u.hostname}`;
@@ -24,7 +25,7 @@ function parseProxy(proxy: string): { serverUrl: string; username?: string; pass
 }
 
 
-/** 构建 Puppeteer launch args，含可选的 proxy 和 headless 模式；代理带账号密码时仅传 serverUrl，认证在 page 上通过 authenticate 完成 */
+/** 构建 Puppeteer launch args */
 function launchArgs(config?: { proxy?: string; headless?: boolean }): string[] {
   const base = [
     "--disable-blink-features=AutomationControlled",
@@ -36,7 +37,6 @@ function launchArgs(config?: { proxy?: string; headless?: boolean }): string[] {
     "--disable-site-isolation-trials",
     "--disable-infobars",
   ];
-  // headless 模式下使用更高的窗口高度，有助于首次加载；headful 模式下使用较小高度便于观察
   const height = config?.headless !== false ? 5000 : 960;
   base.push(`--window-size=1366,${height}`);
   const proxy = resolveProxy(config);
@@ -48,61 +48,35 @@ function launchArgs(config?: { proxy?: string; headless?: boolean }): string[] {
 }
 
 
-/** 获取 userDataDir 路径：基于 cacheDir 和 domain，为每个域名创建独立的用户数据目录以实现隔离 */
-function getUserDataDir(cacheDir?: string, domain?: string): string | undefined {
+/** 获取 userDataDir：统一使用 main 目录，所有站点共享同一浏览器 profile */
+function getUserDataDir(cacheDir?: string): string | undefined {
   if (!cacheDir) return undefined;
-  if (domain) {
-    // 使用 domain 作为目录名，实现域名隔离
-    const safeDomain = domain.replace(/[/\\:]/g, "_");
-    return join(cacheDir, "browser_data", safeDomain);
-  }
-  // 如果没有 domain，使用默认目录（用于不需要认证的场景）
-  return join(cacheDir, "browser_data", "default");
+  return join(cacheDir, "browser_data", "main");
 }
 
 
-// 注入脚本隐藏自动化特征和广告屏蔽检测
+// 注入脚本隐藏自动化特征
 async function stealthPage(page: Page): Promise<void> {
   await page.evaluateOnNewDocument(() => {
     /* global navigator, window, document */
-    // 隐藏 webdriver 特征
-    Object.defineProperty(navigator, "webdriver", {
-      get: () => false,
-    });
-    // 覆盖 plugins 和 languages
-    Object.defineProperty(navigator, "plugins", {
-      get: () => [1, 2, 3, 4, 5],
-    });
-    Object.defineProperty(navigator, "languages", {
-      get: () => ["zh-CN", "zh", "en"],
-    });
-    // 覆盖 permissions
+    Object.defineProperty(navigator, "webdriver", { get: () => false });
+    Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, "languages", { get: () => ["zh-CN", "zh", "en"] });
     const originalQuery = window.navigator.permissions.query;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     window.navigator.permissions.query = (parameters: any) =>
       parameters.name === "notifications"
         ? Promise.resolve({ state: Notification.permission } as PermissionStatus)
         : originalQuery(parameters);
-    // 隐藏 Chrome 自动化特征
-    (window as any).chrome = {
-      runtime: {},
-    };
-    // 覆盖 Notification 权限
-    Object.defineProperty(Notification, "permission", {
-      get: () => "default",
-    });
-    // 覆盖 getBattery
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).chrome = { runtime: {} };
+    Object.defineProperty(Notification, "permission", { get: () => "default" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nav = navigator as any;
     if (nav.getBattery) {
-      nav.getBattery = () =>
-        Promise.resolve({
-          charging: true,
-          chargingTime: 0,
-          dischargingTime: Infinity,
-          level: 1,
-        });
+      nav.getBattery = () => Promise.resolve({ charging: true, chargingTime: 0, dischargingTime: Infinity, level: 1 });
     }
   });
-  // 设置额外的 HTTP 头
   await page.setExtraHTTPHeaders({
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
@@ -129,69 +103,134 @@ function headersToRecord(headers: Record<string, unknown>): Record<string, strin
 }
 
 
-// 从 URL 提取域名（用于设置 cookies，去掉 www 前缀）
-function extractDomain(url: string): string {
+/** 对新 Page 做通用初始化：UA、Viewport、stealth 脚本 */
+async function setupPage(page: Page, headless = true): Promise<void> {
+  const realUserAgent =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  await page.setUserAgent(realUserAgent);
+  await page.setViewport({ width: 1366, height: headless ? 5000 : 960 });
+  await stealthPage(page);
+}
+
+
+// ─── 浏览器单例 ───────────────────────────────────────────────────────────────
+// 全局只保持一个浏览器进程。所有请求（无头/有头）均在此浏览器内开新 Tab。
+// 有头请求到来时若当前是无头浏览器，则关闭并重开有头浏览器（反之亦然）。
+
+let _browser: Browser | null = null;
+let _browserHeadless = true;
+let _launchPromise: Promise<Browser> | null = null;
+
+
+/** 判断浏览器是否健在 */
+async function isBrowserAlive(): Promise<boolean> {
+  if (!_browser) return false;
   try {
-    const urlObj = new URL(url);
-    const hostname = urlObj.hostname;
-    return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+    await _browser.version();
+    return true;
   } catch {
-    return "";
+    _browser = null;
+    return false;
   }
 }
 
 
-/** 复用启动时默认页，避免 newPage() 再开一个 about:blank 导致多标签 */
-function getDefaultPage(browser: Browser): Promise<Page> {
-  return browser.pages().then((p) => p[0] ?? browser.newPage());
+/**
+ * 获取（或启动）浏览器单例。
+ * - 若浏览器已运行且模式匹配 → 直接返回
+ * - 若浏览器已运行但模式不匹配（无头↔有头）→ 关闭后重开
+ * - 若浏览器未运行 → 启动新实例
+ */
+export async function getOrCreateBrowser(config: {
+  headless?: boolean;
+  cacheDir?: string;
+  proxy?: string;
+  chromeExecutablePath?: string;
+}): Promise<Browser> {
+  const wantHeadless = config.headless !== false;
+  // 浏览器已运行
+  if (await isBrowserAlive()) {
+    // 模式一致：直接复用
+    if (_browserHeadless === wantHeadless) {
+      return _browser!;
+    }
+    // 模式不一致（无头→有头 或 有头→无头）：关闭后重开
+    console.log(`[Browser] 切换模式 ${_browserHeadless ? "无头" : "有头"} → ${wantHeadless ? "无头" : "有头"}`);
+    await _browser!.close().catch(() => {});
+    _browser = null;
+    _launchPromise = null;
+  }
+  // 防止并发重复启动
+  if (!_launchPromise) {
+    _launchPromise = (async () => {
+      const executablePath = config.chromeExecutablePath ?? process.env.CHROME_PATH ?? findChromeExecutable();
+      if (!executablePath) {
+        throw new Error("未找到 Chrome 可执行文件，请安装 Google Chrome 或设置 CHROME_PATH 环境变量");
+      }
+      const userDataDir = getUserDataDir(config.cacheDir);
+      console.log(`[Browser] 启动${wantHeadless ? "无头" : "有头"} Chrome: ${executablePath}`);
+      const browser = await puppeteerCore.launch({
+        headless: wantHeadless,
+        args: launchArgs({ proxy: config.proxy, headless: wantHeadless }),
+        userDataDir,
+        executablePath,
+        ignoreDefaultArgs: ["--enable-automation"],
+      });
+      browser.on("disconnected", () => {
+        _browser = null;
+        _launchPromise = null;
+      });
+      _browser = browser;
+      _browserHeadless = wantHeadless;
+      return browser;
+    })().catch((e) => {
+      _launchPromise = null;
+      throw e;
+    });
+  }
+  return _launchPromise;
 }
 
 
-/** 预检认证：用 userDataDir 启动浏览器检查是否已登录；返回 true 表示通过，false 表示需登录 */
+// 进程退出时关闭浏览器，防止僵尸进程
+process.once("exit", () => { _browser?.close().catch(() => {}); });
+process.once("SIGINT", async () => { await _browser?.close().catch(() => {}); process.exit(0); });
+process.once("SIGTERM", async () => { await _browser?.close().catch(() => {}); process.exit(0); });
+
+
+// ─── 对外 API ─────────────────────────────────────────────────────────────────
+
+/** 预检认证：复用共享浏览器（新开 Tab）检查是否已登录 */
 export async function preCheckAuth(authFlow: AuthFlow, cacheDir: string): Promise<boolean> {
   const { checkAuth, loginUrl, domain } = authFlow;
   if (domain == null || !cacheDir) return true;
-  const userDataDir = getUserDataDir(cacheDir, domain);
-  const isHeadless = true;
-  const browser = await puppeteer.launch({ headless: isHeadless, args: launchArgs({ headless: isHeadless }), userDataDir });
+  const browser = await getOrCreateBrowser({ headless: true, cacheDir });
+  const page = await browser.newPage();
   try {
-    const page = await getDefaultPage(browser);
-    const realUserAgent =
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-    await page.setUserAgent(realUserAgent);
-    await page.setViewport({ width: 1366, height: isHeadless ? 5000 : 960 });
-    await stealthPage(page);
+    await setupPage(page, true);
     await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    const currentUrl = page.url();
-    return await checkAuth(page, currentUrl);
+    return await checkAuth(page, page.url());
   } finally {
-    await browser.close();
+    await page.close().catch(() => {});
   }
 }
 
 
-// 执行认证流程：使用有头浏览器检查是否已登录，未通过则等待用户登录
+// 执行认证流程：用有头浏览器（若无头在运行则切换）打开登录页，等待用户完成登录
 export async function ensureAuth(
   authFlow: AuthFlow,
   cacheDir: string
 ): Promise<void> {
   const { checkAuth, loginUrl, domain, loginTimeoutMs = 60 * 1000, pollIntervalMs = 2000 } = authFlow;
-  const userDataDir = getUserDataDir(cacheDir, domain);
-  const isHeadless = false;
-  const browser = await puppeteer.launch({ headless: isHeadless, args: launchArgs({ headless: isHeadless }), userDataDir });
+  const browser = await getOrCreateBrowser({ headless: false, cacheDir });
+  const page = await browser.newPage();
   try {
-    const page = await getDefaultPage(browser);
-    const realUserAgent =
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-    await page.setUserAgent(realUserAgent);
-    await page.setViewport({ width: 1366, height: 960 });
-    await stealthPage(page);
+    await setupPage(page, false);
     console.log(`[Auth] 打开登录页面: ${loginUrl}`);
     await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    const currentUrl = page.url();
-    const authenticated = await checkAuth(page, currentUrl);
+    const authenticated = await checkAuth(page, page.url());
     if (authenticated) {
       console.log(`[Auth] domain ${domain ?? "unknown"} 已登录，无需重新登录`);
       return;
@@ -200,9 +239,7 @@ export async function ensureAuth(
     const startTime = Date.now();
     while (Date.now() - startTime < loginTimeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      const currentUrl = page.url();
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const authenticated = await checkAuth(page, currentUrl);
+      const authenticated = await checkAuth(page, page.url());
       if (authenticated) {
         console.log("[Auth] 登录成功，userDataDir 已持久化登录态");
         return;
@@ -210,11 +247,12 @@ export async function ensureAuth(
     }
     throw new Error(`登录超时（${loginTimeoutMs}ms）`);
   } finally {
-    await browser.close();
+    await page.close().catch(() => {});
   }
 }
 
-// 使用 Puppeteer 打开页面并返回结构化 HTML 结果。cacheDir 负责写缓存（存原始 HTML，避免 purify 导致内容丢失）；useCache 仅控制是否读缓存；purify 仅在返回时应用
+
+// 使用浏览器单例打开页面并返回结构化 HTML 结果；每次请求开新 Tab，用完关 Tab
 export async function fetchHtml(url: string, config: RequestConfig = {}): Promise<StructuredHtmlResult> {
   const { timeoutMs, headers, cookies, cacheDir, cacheKeyStrategy, cacheMaxAgeMs, useCache, checkAuth, authFlow, purify, headless } =
     config;
@@ -229,19 +267,18 @@ export async function fetchHtml(url: string, config: RequestConfig = {}): Promis
     }
   }
   const isHeadless = headless !== false;
-  // 确定 domain：优先使用 authFlow.domain，否则从 URL 提取
-  const domain = authFlow?.domain ?? (url ? extractDomain(url) : undefined);
-  const userDataDir = getUserDataDir(cacheDir, domain);
-  const browser = await puppeteer.launch({ headless: isHeadless, args: launchArgs({ ...config, headless: isHeadless }), userDataDir });
+  const browser = await getOrCreateBrowser({
+    headless: isHeadless,
+    cacheDir,
+    proxy: resolveProxy(config),
+    chromeExecutablePath: config.chromeExecutablePath,
+  });
+  const page = await browser.newPage();
   try {
-    const page = await getDefaultPage(browser);
-    const realUserAgent =
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-    await page.setUserAgent(realUserAgent);
-    // headless 模式下使用更高的视口高度，有助于首次加载；headful 模式下使用较小高度便于观察
-    await page.setViewport({ width: 1366, height: isHeadless ? 5000 : 960 });
-    // 注入反检测脚本
-    await stealthPage(page);
+    if (config.browserContext) {
+      await config.browserContext(page.browserContext());
+    }
+    await setupPage(page, isHeadless);
     const extraHeaders: Record<string, string> = { "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8", ...(headers ?? {}) };
     if (cookies != null && cookies !== "") {
       extraHeaders.cookie = cookies;
@@ -258,21 +295,9 @@ export async function fetchHtml(url: string, config: RequestConfig = {}): Promis
     if (timeoutMs != null) {
       await page.setDefaultNavigationTimeout(timeoutMs);
     }
-    // 导航到目标 URL，userDataDir 会自动加载持久化的 cookies、localStorage、sessionStorage
-    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
-    // 等待页面加载完成：等待 load 事件和 JS 执行
-    try {
-      await page.waitForFunction(
-        () => {
-          /* global document, window */
-          return document.readyState === "complete";
-        },
-        { timeout: 10000 }
-      ).catch(() => {});
-    } catch {
-      // 如果等待失败，继续执行
-    }
-    // 额外等待一段时间，确保 JS 动态内容加载完成（特别是 React/Vue 等框架的 hydration）
+    // 等待所有 HTTP 重定向及资源加载完毕，避免 JS 跳转导致 detached Frame
+    const response = await page.goto(url, { waitUntil: "load", timeout: navigationTimeout });
+    // 额外等待确保 JS 动态内容加载（React/Vue 等框架 hydration）
     await new Promise((resolve) => setTimeout(resolve, 2000));
     if (checkAuth != null || authFlow != null) {
       const authCheck = checkAuth ?? authFlow?.checkAuth;
@@ -283,7 +308,18 @@ export async function fetchHtml(url: string, config: RequestConfig = {}): Promis
         }
       }
     }
-    const rawBody = await page.content();
+    // 获取页面内容；若因 JS 跳转导致 frame 失效则等待后重试
+    let rawBody: string;
+    try {
+      rawBody = await page.content();
+    } catch (e) {
+      if (e instanceof Error && (e.message.includes("detached") || e.message.includes("Session closed"))) {
+        await new Promise((r) => setTimeout(r, 1500));
+        rawBody = await page.content();
+      } else {
+        throw e;
+      }
+    }
     const finalUrl = response?.url() ?? page.url() ?? String(url);
     const status = response?.status() ?? 0;
     const statusText = response?.statusText() ?? "";
@@ -296,6 +332,7 @@ export async function fetchHtml(url: string, config: RequestConfig = {}): Promis
     const body = applyPurify(rawBody, purify);
     return { finalUrl, status, statusText, headers: normalizedHeaders, body };
   } finally {
-    await browser.close();
+    // 只关闭 Tab，浏览器继续运行
+    await page.close().catch(() => {});
   }
 }

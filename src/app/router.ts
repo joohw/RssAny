@@ -6,8 +6,7 @@ import { Hono } from "hono";
 import { getRss } from "../feeder/index.js";
 import { extractFromLink } from "../extractor/index.js";
 import { parseHtml } from "../parser/index.js";
-import { fetchHtml, ensureAuth, preCheckAuth } from "../fetcher/index.js";
-import puppeteer from "puppeteer";
+import { fetchHtml, ensureAuth, preCheckAuth, getOrCreateBrowser } from "../fetcher/index.js";
 import { getSite, getSiteById, getSiteForExtraction, toAuthFlow, registeredSites, getProxyForSite, getProxyForUrl } from "../sites/index.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 
@@ -87,7 +86,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.json({ ok: false, message: `检查失败: ${msg}` }, 500);
     }
   });
-  // 打开登录页面（不绑定检查hook，不管生命周期）
+  // 打开登录页面：复用浏览器单例（若无头则切换为有头），新开 Tab 导航到登录页
   app.post("/auth/open", async (c) => {
     const siteIdParam = c.req.query("siteId");
     if (!siteIdParam) {
@@ -97,19 +96,9 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     if (!site) return c.json({ ok: false, message: "无此站点" }, 404);
     const authFlow = toAuthFlow(site);
     if (!authFlow) return c.json({ ok: false, message: "该站点无需登录" }, 400);
-    const { loginUrl, domain } = authFlow;
-    const safeDomain = domain ? domain.replace(/[/\\:]/g, "_") : "default";
-    const userDataDir = join(CACHE_DIR, "browser_data", safeDomain);
-    const isHeadless = false;
-    const launchArgs = [
-      "--disable-blink-features=AutomationControlled",
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--window-size=1366,960",
-    ];
-    puppeteer.launch({ headless: isHeadless, args: launchArgs, userDataDir }).then(async (browser) => {
-      const page = await browser.pages().then((p) => p[0] ?? browser.newPage());
+    const { loginUrl } = authFlow;
+    getOrCreateBrowser({ headless: false, cacheDir: CACHE_DIR }).then(async (browser) => {
+      const page = await browser.newPage();
       const realUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
       await page.setUserAgent(realUserAgent);
       await page.setViewport({ width: 1366, height: 960 });

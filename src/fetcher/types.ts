@@ -1,5 +1,6 @@
 // fetcher 请求配置：对 fetch RequestInit 的封装与扩展
 
+import type { BrowserContext } from "puppeteer-core";
 import type { AuthFlow, CheckAuthFn } from "../auth/index.js";
 
 
@@ -35,6 +36,10 @@ export interface RequestConfig {
   headless?: boolean;
   /** 代理，如 http://127.0.0.1:7890、socks5://127.0.0.1:1080；需认证时用 http://user:pass@host:port；不设时从 HTTP_PROXY/HTTPS_PROXY 读取 */
   proxy?: string;
+  /** Chrome 可执行文件路径，不提供则自动查找系统 Chrome 或使用 CHROME_PATH 环境变量 */
+  chromeExecutablePath?: string;
+  /** 浏览器上下文配置函数：在创建页面后调用，可用于设置 cookies、localStorage 等；(context) => Promise<void> */
+  browserContext?: ((context: BrowserContext) => Promise<void>) | null;
 }
 
 // fetcher 返回的结构化 HTML 结果

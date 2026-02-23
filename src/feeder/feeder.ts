@@ -94,7 +94,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   const { cacheDir = "cache", includeContent = true, headless } = config;
   const site = getSite(listUrl)!;
   const proxy = getProxyForSite(site.id, listUrl);
-  const listRes = await fetchHtml(listUrl, { cacheDir, useCache: false, authFlow: toAuthFlow(site), headless, proxy });
+  const listRes = await fetchHtml(listUrl, { cacheDir, useCache: false, authFlow: toAuthFlow(site), headless, proxy, browserContext: site.browserContext ?? undefined });
   if (listRes.status !== 200) return buildErrorRss(listUrl, `抓取失败: HTTP ${listRes.status}`);
   const parsed = await parseHtml(listRes.body, {
     url: listRes.finalUrl ?? listUrl,
@@ -115,7 +115,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   if (cacheDir) await writeFeedsCache(cacheDir, key, buildRssFromCache(cache));
   if (includeContent && items.length > 0 && site.extractor != null) {
     const extractorConfig = { cacheDir, useCache: false, customExtractor: site.extractor };
-    const fetchConfig = { cacheDir, headless, proxy: getProxyForSite(site.id) };
+    const fetchConfig = { cacheDir, headless, proxy: getProxyForSite(site.id), browserContext: site.browserContext ?? undefined };
     (async () => {
       for (let i = 0; i < items.length; i++) {
         try {
