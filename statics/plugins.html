@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>插件管理 - RssAny</title>
+  <style>
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 1rem
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem
+    }
+
+    .back-link {
+      display: inline-block;
+      margin-bottom: 1.5rem;
+      color: #0969da;
+      text-decoration: none
+    }
+
+    .back-link:hover {
+      text-decoration: underline
+    }
+
+    .plugins-list {
+      list-style: none;
+      padding: 0;
+      margin: 0
+    }
+
+    .plugin-item {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      background: #fff
+    }
+
+    .plugin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 0.75rem
+    }
+
+    .plugin-id {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #333;
+      margin: 0
+    }
+
+    .plugin-badges {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap
+    }
+
+    .badge {
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 500
+    }
+
+    .badge-auth {
+      background: #fff3cd;
+      color: #856404
+    }
+
+    .badge-parser {
+      background: #d1ecf1;
+      color: #0c5460
+    }
+
+    .badge-extractor {
+      background: #d4edda;
+      color: #155724
+    }
+
+    .plugin-info {
+      margin-bottom: 0.75rem
+    }
+
+    .plugin-info-item {
+      font-size: 0.875rem;
+      color: #666;
+      margin-bottom: 0.25rem
+    }
+
+    .plugin-info-label {
+      font-weight: 500;
+      color: #333
+    }
+
+    .plugin-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap
+    }
+
+    .btn {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      text-decoration: none;
+      display: inline-block;
+      transition: background 0.2s
+    }
+
+    .btn-primary {
+      background: #0969da;
+      color: #fff
+    }
+
+    .btn-primary:hover {
+      background: #0860ca
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: #fff
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed
+    }
+
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #666
+    }
+
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem
+    }
+
+    .success {
+      background: #d4edda;
+      color: #155724;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+      display: none
+    }
+
+    .success.show {
+      display: block
+    }
+  </style>
+</head>
+
+<body>
+  <h1>插件管理</h1>
+  <a href="/" class="back-link">← 返回首页</a>
+
+  <div id="success-message" class="success"></div>
+  <div id="error-message" class="error" style="display: none;"></div>
+
+  <div id="loading" class="loading">加载中...</div>
+  <ul id="plugins-list" class="plugins-list" style="display: none;"></ul>
+
+  <script>
+    // 加载插件列表
+    async function loadPlugins() {
+      try {
+        const response = await fetch('/api/plugins');
+        if (!response.ok) {
+          throw new Error('加载插件列表失败');
+        }
+        const plugins = await response.json();
+        renderPlugins(plugins);
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('plugins-list').style.display = 'block';
+      } catch (error) {
+        document.getElementById('loading').style.display = 'none';
+        const errorEl = document.getElementById('error-message');
+        errorEl.textContent = '加载插件列表失败: ' + error.message;
+        errorEl.style.display = 'block';
+      }
+    }
+
+    // 渲染插件列表
+    function renderPlugins(plugins) {
+      const listEl = document.getElementById('plugins-list');
+      listEl.innerHTML = '';
+
+      if (plugins.length === 0) {
+        listEl.innerHTML = '<li style="text-align: center; padding: 2rem; color: #666;">暂无插件</li>';
+        return;
+      }
+
+      plugins.forEach(plugin => {
+        const li = document.createElement('li');
+        li.className = 'plugin-item';
+
+        const badges = [];
+        if (plugin.hasAuth) badges.push('<span class="badge badge-auth">需要登录</span>');
+        if (plugin.hasParser) badges.push('<span class="badge badge-parser">Parser</span>');
+        if (plugin.hasExtractor) badges.push('<span class="badge badge-extractor">Extractor</span>');
+
+        li.innerHTML = `
+          <div class="plugin-header">
+            <h3 class="plugin-id">${escapeHtml(plugin.id)}</h3>
+            <div class="plugin-badges">${badges.join('')}</div>
+          </div>
+          <div class="plugin-info">
+            <div class="plugin-info-item">
+              <span class="plugin-info-label">URL 模式:</span> ${escapeHtml(plugin.listUrlPattern)}
+            </div>
+          </div>
+          <div class="plugin-actions">
+            ${plugin.hasAuth ? `
+              <button class="btn btn-secondary" onclick="handleCheckAuth('${escapeHtml(plugin.id)}', event)">检查登录状态</button>
+              <button class="btn btn-primary" onclick="handleOpenLogin('${escapeHtml(plugin.id)}', event)">打开登录页</button>
+            ` : ''}
+          </div>
+        `;
+
+        listEl.appendChild(li);
+      });
+    }
+
+    // 检查登录状态
+    async function handleCheckAuth(siteId, event) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '检查中...';
+
+      try {
+        const response = await fetch(`/auth/check?siteId=${encodeURIComponent(siteId)}`);
+        const result = await response.json();
+
+        if (result.ok) {
+          const status = result.authenticated ? '已登录' : '未登录';
+          showSuccess(`登录状态: ${status}`);
+        } else {
+          showError(result.message || '检查失败');
+        }
+      } catch (error) {
+        showError('检查请求失败: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '检查登录状态';
+      }
+    }
+
+    // 打开登录页面
+    async function handleOpenLogin(siteId, event) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '打开中...';
+
+      try {
+        const response = await fetch(`/auth/open?siteId=${encodeURIComponent(siteId)}`, {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.ok) {
+          showSuccess(result.message || '已打开登录页面');
+        } else {
+          showError(result.message || '打开失败');
+        }
+      } catch (error) {
+        showError('打开请求失败: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '打开登录页';
+      }
+    }
+
+    // 显示成功消息
+    function showSuccess(message) {
+      const successEl = document.getElementById('success-message');
+      successEl.textContent = message;
+      successEl.classList.add('show');
+      setTimeout(() => {
+        successEl.classList.remove('show');
+      }, 5000);
+    }
+
+    // 显示错误消息
+    function showError(message) {
+      const errorEl = document.getElementById('error-message');
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+      setTimeout(() => {
+        errorEl.style.display = 'none';
+      }, 5000);
+    }
+
+    // HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 页面加载时获取插件列表
+    loadPlugins();
+  </script>
+</body>
+
+</html>

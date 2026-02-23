@@ -1,0 +1,54 @@
+{
+  "name": "rssany",
+  "version": "0.1.0",
+  "description": "Universal RSS/Atom/JSON Feed pipeline — fetches, extracts, parses and converts any web content into consumable feeds with plugin support",
+  "author": "Joo",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "NODE_ENV=development tsx --watch src/app/index.ts",
+    "dev:build": "vite build --watch",
+    "start": "node dist/index.js",
+    "serve:route": "node scripts/serve-route.mjs",
+    "serve:app": "npx tsx src/app/index.ts",
+    "tunnel:route": "cloudflared tunnel --protocol http2 --url http://127.0.0.1:3751",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "rss",
+    "atom",
+    "json-feed",
+    "subscription",
+    "pipeline"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^25.2.0",
+    "eslint": "^9.15.0",
+    "globals": "^15.12.0",
+    "typescript": "~5.6.0",
+    "typescript-eslint": "^8.15.0",
+    "tsx": "^4.19.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@mozilla/readability": "^0.6.0",
+    "hono": "^4.6.0",
+    "dotenv": "^16.4.7",
+    "jsdom": "^25.0.0",
+    "node-html-parser": "^7.0.2",
+    "openai": "^4.76.1",
+    "puppeteer": "^24.36.0"
+  }
+}

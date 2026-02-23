@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RssAny</title>
+  <style>
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 480px;
+      margin: 2rem auto;
+      padding: 0 1rem
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      margin-bottom: 1.5rem
+    }
+
+    .mode {
+      margin-bottom: 1rem
+    }
+
+    .mode label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      padding: 0.5rem 0
+    }
+
+    .mode input[type=radio] {
+      margin: 0
+    }
+
+    .opts {
+      padding-top: 0.25rem
+    }
+
+    .opts input[type=checkbox] {
+      margin: 0
+    }
+
+    .url-wrap {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem
+    }
+
+    .url-wrap input {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 1rem
+    }
+
+    .url-wrap button {
+      padding: 0.5rem 1rem;
+      background: #333;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer
+    }
+
+    .url-wrap button:hover {
+      background: #555
+    }
+
+    .hint {
+      font-size: 0.875rem;
+      color: #666;
+      margin-top: 0.5rem
+    }
+
+    .try-this {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #eee
+    }
+
+    .try-this h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      color: #333
+    }
+
+    .try-this ul {
+      list-style: none;
+      padding: 0;
+      margin: 0
+    }
+
+    .try-this li {
+      margin-bottom: 0.5rem
+    }
+
+    .try-this a {
+      color: #0969da;
+      text-decoration: none
+    }
+
+    .try-this a:hover {
+      text-decoration: underline
+    }
+  </style>
+</head>
+
+<body>
+  <h1>RssAny</h1>
+  <p><a href="/plugins" target="_blank">已生效插件</a></p>
+  <form id="f" onsubmit="return go()">
+    <div class="mode">
+      <label><input type="radio" name="mode" value="rss" checked> RSS</label>
+      <label><input type="radio" name="mode" value="parse"> Parse</label>
+      <label><input type="radio" name="mode" value="extractor"> Extract</label>
+    </div>
+    <div class="url-wrap">
+      <input type="url" name="url" placeholder="https://..." required autocomplete="url">
+      <button type="submit">访问</button>
+    </div>
+    <div class="mode opts">
+      <label><input type="checkbox" name="headful" value="1"> Headful</label>
+      <span class="hint">勾选后可观察实际加载过程</span>
+    </div>
+  </form>
+  <section class="try-this">
+    <h2>Try This</h2>
+    <ul>
+      <li><a href="/rss/https%3A%2F%2Fgithub.com%2Fdeepseek-ai" target="_blank">GitHub deepseek-ai</a></li>
+      <li><a href="/rss/https%3A%2F%2Fopenai.com%2Fzh-Hans-CN%2Fnews%2F" target="_blank">OpenAI News (中文)</a></li>
+      <li><a href="/rss/https%3A%2F%2Flingowhale.com%2Fchannels%3Fchannel_id%3D67cc08b79a4297b6148b4c3f"
+          target="_blank">LingoWhale Channel</a></li>
+    </ul>
+  </section>
+  <script>
+    function go() {
+      const m = document.querySelector('input[name=mode]:checked').value;
+      const u = document.querySelector('input[name=url]').value.trim();
+      const headful = !!document.querySelector('input[name=headful]')?.checked;
+      if (!u) return false;
+      const fullUrl = u.startsWith('http') ? u : 'https://' + u;
+      const path = '/' + m + '/' + encodeURIComponent(fullUrl);
+      const qs = headful ? '?headless=false' : '';
+      window.open(path + qs, '_blank');
+      return false;
+    }
+  </script>
+</body>
+
+</html>
