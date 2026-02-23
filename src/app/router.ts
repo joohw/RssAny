@@ -8,7 +8,7 @@ import { extractFromLink } from "../extractor/index.js";
 import { parseHtml } from "../parser/index.js";
 import { fetchHtml, ensureAuth, preCheckAuth } from "../fetcher/index.js";
 import puppeteer from "puppeteer";
-import { getSite, getSiteById, getSiteForExtraction, toAuthFlow, registeredSites } from "../sites/index.js";
+import { getSite, getSiteById, getSiteForExtraction, toAuthFlow, registeredSites, getProxyForSite, getProxyForUrl } from "../sites/index.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 
 
@@ -152,13 +152,14 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const site = getSite(url);
       if (!site) return c.text("无匹配站点", 404);
       const authFlow = toAuthFlow(site);
+      const proxy = getProxyForSite(site.id, url);
       const res = await fetchHtml(url, {
         cacheDir: CACHE_DIR,
         useCache: false,
         authFlow,
         timeoutMs: 60_000,
         headless,
-        proxy: site.proxy ?? undefined,
+        proxy,
       });
       if (res.status !== 200) {
         return c.text(`拉取失败: ${res.status} ${res.statusText}`, 500);
@@ -187,6 +188,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
       const site = getSiteForExtraction(url) ?? getSite(url);
+      const proxy = site ? getProxyForSite(site.id, url) : getProxyForUrl(url);
       const result = await extractFromLink(url, {
         customExtractor: site?.extractor ?? undefined,
         cacheDir: CACHE_DIR,
@@ -194,7 +196,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       }, {
         timeoutMs: 60_000,
         headless,
-        proxy: site?.proxy ?? undefined,
+        proxy,
       });
       return c.json({
         ...result,

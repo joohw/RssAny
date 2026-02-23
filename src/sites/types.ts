@@ -40,8 +40,6 @@ export interface Site {
   loginTimeoutMs?: number | null;
   /** 认证：轮询 checkAuth 间隔毫秒，默认 2000 */
   pollIntervalMs?: number | null;
-  /** 代理配置：如 "http://127.0.0.1:7890"、"socks5://127.0.0.1:1080"；需认证时用 "http://user:pass@host:port"，不设则使用环境变量 HTTP_PROXY/HTTPS_PROXY */
-  proxy?: string | null;
 }
 
 

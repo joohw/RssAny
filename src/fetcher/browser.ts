@@ -1,7 +1,7 @@
 // 使用无头浏览器（Puppeteer）拉取页面，缓存逻辑在 cacher 中
 
 import { join } from "node:path";
-import puppeteer, { type Browser, type Cookie, type Page } from "puppeteer";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 import { readCached, writeCached } from "../cacher/index.js";
 import { applyPurify } from "./purify.js";
 import type { AuthFlow } from "../auth/index.js";

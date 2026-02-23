@@ -8,7 +8,7 @@ import { fetchHtml } from "../fetcher/index.js";
 import { parseHtml } from "../parser/index.js";
 import { extractItem } from "../extractor/index.js";
 import { preCheckAuth } from "../fetcher/index.js";
-import { getSite, toAuthFlow } from "../sites/index.js";
+import { getSite, toAuthFlow, getProxyForSite } from "../sites/index.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 import { buildRssXml } from "../feed/index.js";
 import type { RssChannel, RssEntry } from "../feed/types.js";
@@ -93,7 +93,8 @@ const generatingState = new Map<string, FeedCache>();
 async function generateAndCache(listUrl: string, key: string, config: FeederConfig): Promise<string> {
   const { cacheDir = "cache", includeContent = true, headless } = config;
   const site = getSite(listUrl)!;
-  const listRes = await fetchHtml(listUrl, { cacheDir, useCache: false, authFlow: toAuthFlow(site), headless, proxy: site.proxy ?? undefined });
+  const proxy = getProxyForSite(site.id, listUrl);
+  const listRes = await fetchHtml(listUrl, { cacheDir, useCache: false, authFlow: toAuthFlow(site), headless, proxy });
   if (listRes.status !== 200) return buildErrorRss(listUrl, `抓取失败: HTTP ${listRes.status}`);
   const parsed = await parseHtml(listRes.body, {
     url: listRes.finalUrl ?? listUrl,
@@ -114,7 +115,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   if (cacheDir) await writeFeedsCache(cacheDir, key, buildRssFromCache(cache));
   if (includeContent && items.length > 0 && site.extractor != null) {
     const extractorConfig = { cacheDir, useCache: false, customExtractor: site.extractor };
-    const fetchConfig = { cacheDir, headless, proxy: site.proxy ?? undefined };
+    const fetchConfig = { cacheDir, headless, proxy: getProxyForSite(site.id) };
     (async () => {
       for (let i = 0; i < items.length; i++) {
         try {

@@ -8,7 +8,7 @@ import { cacheKey as cacherCacheKey } from "../cacher/index.js";
 import { fetchHtml } from "../fetcher/index.js";
 import type { RequestConfig } from "../fetcher/types.js";
 import type { FeedItem } from "../types/feedItem.js";
-import type { ExtractedResult, ExtractorConfig, ExtractorMode } from "./types.js";
+import type { ExtractedResult, ExtractorConfig } from "./types.js";
 
 
 const EXTRACTED_SUBDIR = "extracted";

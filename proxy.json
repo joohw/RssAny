@@ -1,0 +1,8 @@
+{
+  "$comment": "全局代理配置：通过站点 ID 或 URL 正则表达式匹配到指定的代理",
+  "$comment2": "匹配优先级：站点 ID 匹配 > URL 正则表达式匹配 > 环境变量 HTTP_PROXY/HTTPS_PROXY",
+  "$comment3": "代理格式：http://127.0.0.1:7890、socks5://127.0.0.1:1080，或带认证的 http://user:pass@host:port",
+  "xiaohongshu": "http://127.0.0.1:7890",
+  "x": "socks5://127.0.0.1:1080",
+  "^https://example\\.com": "http://127.0.0.1:7890"
+}
