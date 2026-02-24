@@ -134,3 +134,5 @@ export default {
 ## 许可证
 
 MIT
+
+欢迎提交 Issue 与 PR 共同改进项目。
