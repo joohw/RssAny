@@ -146,6 +146,13 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
           await writeItemsCache(cacheDir, key, items);
         }
       },
+      onAllDone: async () => {
+        if (cacheDir) {
+          const xml = buildRssFromCache(cache);
+          await writeFeedsCache(cacheDir, key, xml);
+          await writeItemsCache(cacheDir, key, items);
+        }
+      },
     },
   );
   return { xml: initialXml, items, enrichTaskId };

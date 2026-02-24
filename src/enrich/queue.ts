@@ -150,7 +150,9 @@ class EnrichQueue {
       itemResult.error = message;
       task.progress.failed++;
       console.warn(`[EnrichQueue] 提取最终失败 ${items[itemIndex]?.link ?? ""}:`, message);
-      await Promise.resolve(callbacks?.onItemDone?.(items[itemIndex], itemIndex));
+      const failedItem = { ...items[itemIndex], extractionFailed: true };
+      items[itemIndex] = failedItem;
+      await Promise.resolve(callbacks?.onItemDone?.(failedItem, itemIndex));
     }
     this.checkTaskComplete(taskId);
   }
