@@ -16,6 +16,7 @@ import { getWebSite, getSiteForDetail, getBestSite, getPluginSites, toAuthFlow }
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 import { queryItems, queryItemsBySource, getPendingPushItems, markPushed } from "../db/index.js";
 import { refreshIntervalToMs } from "../utils/refreshInterval.js";
+import { enrichQueue } from "../enrich/index.js";
 
 
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
@@ -75,6 +76,13 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       if (err instanceof NotFoundError) return c.json({ error: err.message, code: "NOT_FOUND" }, 404);
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
     }
+  });
+  // API：查询后台正文提取任务状态（进行中 or 已完成）
+  app.get("/api/enrich/:taskId", (c) => {
+    const taskId = c.req.param("taskId");
+    const task = enrichQueue.getTask(taskId);
+    if (!task) return c.json({ error: "任务不存在或已过期" }, 404);
+    return c.json(task);
   });
   // API：查询数据库条目列表（支持 source_url / q 过滤、分页）
   app.get("/api/items", async (c) => {

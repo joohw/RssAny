@@ -25,4 +25,6 @@ export interface FeederResult {
   fromCache: boolean;
   /** 当前已抓取到的条目列表（含后台补全状态） */
   items: FeedItem[];
+  /** 后台提取任务 ID；fromCache=true 或信源无 enrichItem 时为 undefined */
+  enrichTaskId?: string;
 }

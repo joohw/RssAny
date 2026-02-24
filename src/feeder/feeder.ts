@@ -10,6 +10,7 @@ import type { RssChannel, RssEntry } from "../feed/types.js";
 import type { FeedItem } from "../types/feedItem.js";
 import type { FeederConfig, FeederResult } from "./types.js";
 import { upsertItems, updateItemContent } from "../db/index.js";
+import { enrichQueue } from "../enrich/index.js";
 
 
 const FEEDS_SUBDIR = "feeds";
@@ -97,11 +98,11 @@ function buildErrorRss(listUrl: string, message: string): string {
 
 
 /** 同一 URL 的首次生成任务去重（仅在初始 fetch+parse 阶段有效） */
-const generatingKeys = new Map<string, Promise<{ xml: string; items: FeedItem[] }>>();
+const generatingKeys = new Map<string, Promise<{ xml: string; items: FeedItem[]; enrichTaskId?: string }>>();
 
 
-/** 执行生成流程：通过 Source.fetchItems 获取条目列表，写入初始缓存后立即返回；若 Source 有 enrichItem 则在后台补全并覆盖缓存 */
-async function generateAndCache(listUrl: string, key: string, config: FeederConfig): Promise<{ xml: string; items: FeedItem[] }> {
+/** 执行生成流程：获取条目列表后立即返回初始 XML；若信源有 enrichItem 则提交到全局 EnrichQueue 后台补全 */
+async function generateAndCache(listUrl: string, key: string, config: FeederConfig): Promise<{ xml: string; items: FeedItem[]; enrichTaskId?: string }> {
   const { cacheDir = "cache", includeContent = true, headless } = config;
   const source = getSource(listUrl);
   const ctx = { cacheDir, headless, proxy: config.proxy ?? source.proxy };
@@ -127,26 +128,27 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   }
   generatingKeys.delete(key);
   upsertItems(items, listUrl).catch((err) => console.warn("[db] upsertItems 失败:", err instanceof Error ? err.message : err));
-  if (includeContent && items.length > 0 && source.enrichItem != null) {
-    const enrichItem = source.enrichItem.bind(source);
-    (async () => {
-      for (let i = 0; i < items.length; i++) {
-        try {
-          items[i] = await enrichItem(items[i], ctx);
-          updateItemContent(items[i]).catch((err) => console.warn("[db] updateItemContent 失败:", err instanceof Error ? err.message : err));
-        } catch (err) {
-          console.warn(`[feeder] 提取失败 ${items[i].link}:`, err instanceof Error ? err.message : err);
-          items[i] = { ...items[i], extractionFailed: true };
-        }
-      }
-      const finalXml = buildRssFromCache({ ...cache, items });
-      if (cacheDir) {
-        await writeFeedsCache(cacheDir, key, finalXml);
-        await writeItemsCache(cacheDir, key, items);
-      }
-    })().catch((err) => console.warn("[feeder] 后台提取详情失败:", err instanceof Error ? err.message : err));
+  if (!includeContent || items.length === 0 || source.enrichItem == null) {
+    return { xml: initialXml, items };
   }
-  return { xml: initialXml, items };
+  const enrichTaskId = await enrichQueue.submit(
+    items,
+    source.enrichItem.bind(source),
+    ctx,
+    {
+      sourceUrl: listUrl,
+      onItemDone: async (enrichedItem, index) => {
+        items[index] = enrichedItem;
+        updateItemContent(enrichedItem).catch((err) => console.warn("[db] updateItemContent 失败:", err instanceof Error ? err.message : err));
+        if (cacheDir) {
+          const xml = buildRssFromCache(cache);
+          await writeFeedsCache(cacheDir, key, xml);
+          await writeItemsCache(cacheDir, key, items);
+        }
+      },
+    },
+  );
+  return { xml: initialXml, items, enrichTaskId };
 }
 
 
@@ -176,8 +178,8 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
     task = generateAndCache(listUrl, key, config);
     generatingKeys.set(key, task);
   }
-  const { xml, items } = await task;
-  return { xml, fromCache: false, items };
+  const { xml, items, enrichTaskId } = await task;
+  return { xml, fromCache: false, items, enrichTaskId };
 }
 
 

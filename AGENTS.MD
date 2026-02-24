@@ -84,6 +84,13 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 ### utils（共享工具）
 - **`utils/refreshInterval.ts`**：`RefreshInterval` 类型定义 + `refreshIntervalToMs` 转换函数，全项目唯一权威来源
 
+### enrich（正文提取任务队列）
+- **职责**：全局异步任务队列，管理所有后台正文提取任务，统一控制并发与重试
+- **接口**：`enrichQueue.submit(items, enrichFn, ctx, opts)` → `taskId`；`enrichQueue.getTask(taskId)` → 任务状态
+- **配置**：从 `.rssany/config.json` 的 `enrich.concurrency`（默认 2）与 `enrich.maxRetries`（默认 2）读取，支持 `ENRICH_CONCURRENCY` / `ENRICH_MAX_RETRIES` 环境变量兜底
+- **状态**：单任务状态 `pending | running | done`；单条目状态 `pending | running | done | failed`
+- **缓存更新**：每条目提取完成后立即覆盖 feeds 缓存（XML + items JSON），DB 同步更新
+
 ### llm（LLM 统一调用）
 - **职责**：封装 OpenAI API 调用，供 parser/extractor 的 LLM 模式使用
 - **配置**：从环境变量读取 OPENAI_API_KEY、OPENAI_BASE_URL、OPENAI_MODEL
