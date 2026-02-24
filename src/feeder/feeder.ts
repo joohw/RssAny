@@ -174,7 +174,12 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
       readFeedsCache(cacheDir, key),
       readItemsCache(cacheDir, key),
     ]);
-    if (cachedXml != null) return { xml: cachedXml, fromCache: true, items: cachedItems ?? [] };
+    if (cachedXml != null) {
+      if (config.writeDb && cachedItems != null && cachedItems.length > 0) {
+        upsertItems(cachedItems, listUrl).catch((err) => console.warn("[db] upsertItems(缓存命中) 失败:", err instanceof Error ? err.message : err));
+      }
+      return { xml: cachedXml, fromCache: true, items: cachedItems ?? [] };
+    }
   }
   if (source.preCheck != null) {
     try {

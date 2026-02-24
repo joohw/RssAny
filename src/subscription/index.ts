@@ -46,7 +46,7 @@ export async function getSubscription(id: string, cacheDir = "cache"): Promise<S
   const settled = await Promise.allSettled(
     config.sources.map((src) => {
       const ref = resolveRef(src);
-      return getItems(ref, { cacheDir, refreshInterval: src.refresh, proxy: src.proxy }).then((items) => ({ ref, label: src.label, items }));
+      return getItems(ref, { cacheDir, refreshInterval: src.refresh, proxy: src.proxy, writeDb: true }).then((items) => ({ ref, label: src.label, items }));
     })
   );
   const allItems: FeedItem[] = [];

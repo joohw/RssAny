@@ -18,6 +18,7 @@
   let loadError = '';
   let toast = '';
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  const PREVIEW_TIMEOUT_MS = 120_000;
 
   // 当前进行中的 fetch 的 AbortController，用于在导航离开时主动取消请求
   let abortController: AbortController | null = null;
@@ -84,7 +85,7 @@
 
     const controller = new AbortController();
     abortController = controller;
-    const timeoutMs = 30000;
+    const timeoutMs = PREVIEW_TIMEOUT_MS;
     let timedOut = false;
     const timeoutId = setTimeout(() => {
       timedOut = true;

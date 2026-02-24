@@ -20,7 +20,7 @@ const timers = new Map<string, NodeJS.Timeout>();
 /** 拉取单个信源，携带 refreshInterval 传入 feeder 以统一策略解析 */
 async function pullSource(subId: string, ref: string, cacheDir: string, refreshInterval?: RefreshInterval): Promise<void> {
   try {
-    await getItems(ref, { cacheDir, refreshInterval });
+    await getItems(ref, { cacheDir, refreshInterval, writeDb: true });
     console.log(`[Scheduler] 信源 "${ref}"（订阅 "${subId}"）拉取完成`);
   } catch (err) {
     console.warn(`[Scheduler] 信源 "${ref}" 拉取失败:`, err instanceof Error ? err.message : String(err));
@@ -31,7 +31,7 @@ async function pullSource(subId: string, ref: string, cacheDir: string, refreshI
 /** 拉取单个订阅下所有无独立 refresh 的信源，并发触发 fetch→parse→upsert 全流程 */
 async function pullSubscription(id: string, sourceUrls: string[], cacheDir: string, refreshInterval?: RefreshInterval): Promise<void> {
   console.log(`[Scheduler] 开始拉取订阅 "${id}"（${sourceUrls.length} 个信源）`);
-  const results = await Promise.allSettled(sourceUrls.map((url) => getItems(url, { cacheDir, refreshInterval })));
+  const results = await Promise.allSettled(sourceUrls.map((url) => getItems(url, { cacheDir, refreshInterval, writeDb: true })));
   let ok = 0;
   let fail = 0;
   for (const r of results) {
