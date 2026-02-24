@@ -1,6 +1,7 @@
 // App 入口：Hono 服务，与 feeder 解耦；可替换为 Express 等
 
 import "dotenv/config";
+import { networkInterfaces } from "node:os";
 import { spawn } from "node:child_process";
 import { watch } from "node:fs";
 import { serve } from "@hono/node-server";
@@ -78,8 +79,10 @@ async function main() {
   const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
   await initScheduler(CACHE_DIR);
   const app = createApp();
-  serve({ fetch: app.fetch, port: PORT });
-  console.log(`RssAny: http://127.0.0.1:${PORT}/`);
+  serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" });
+  console.log(`RssAny 本机: http://127.0.0.1:${PORT}/`);
+  const lanIp = Object.values(networkInterfaces()).flat().find((iface) => iface?.family === "IPv4" && !iface.internal)?.address;
+  if (lanIp) console.log(`RssAny 局域网: http://${lanIp}:${PORT}/`);
   if (IS_DEV) {
     watchPlugins();
   }

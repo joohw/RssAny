@@ -29,9 +29,9 @@ async function pullSource(subId: string, ref: string, cacheDir: string, refreshI
 
 
 /** 拉取单个订阅下所有无独立 refresh 的信源，并发触发 fetch→parse→upsert 全流程 */
-async function pullSubscription(id: string, sourceUrls: string[], cacheDir: string): Promise<void> {
+async function pullSubscription(id: string, sourceUrls: string[], cacheDir: string, refreshInterval?: RefreshInterval): Promise<void> {
   console.log(`[Scheduler] 开始拉取订阅 "${id}"（${sourceUrls.length} 个信源）`);
-  const results = await Promise.allSettled(sourceUrls.map((url) => getItems(url, { cacheDir })));
+  const results = await Promise.allSettled(sourceUrls.map((url) => getItems(url, { cacheDir, refreshInterval })));
   let ok = 0;
   let fail = 0;
   for (const r of results) {
@@ -89,7 +89,7 @@ async function reschedule(cacheDir: string): Promise<void> {
     const subSourceUrls = sourcesWithoutRefresh.map((s) => resolveRef(s)).filter(Boolean);
     if (subSourceUrls.length === 0) continue;
     const timer = setInterval(() => {
-      pullSubscription(config.id, subSourceUrls, cacheDir).catch((err) => {
+      pullSubscription(config.id, subSourceUrls, cacheDir, config.pullInterval).catch((err) => {
         console.warn(`[Scheduler] 订阅 "${config.id}" 定时拉取异常:`, err instanceof Error ? err.message : String(err));
       });
     }, intervalMs);
@@ -107,7 +107,7 @@ function warmUp(cacheDir: string): void {
     for (const config of configs) {
       const sourceUrls = config.sources.map((s) => resolveRef(s)).filter(Boolean);
       if (sourceUrls.length === 0) continue;
-      pullSubscription(config.id, sourceUrls, cacheDir).catch((err) => {
+      pullSubscription(config.id, sourceUrls, cacheDir, config.pullInterval).catch((err) => {
         console.warn(`[Scheduler] 启动预热失败 "${config.id}":`, err instanceof Error ? err.message : String(err));
       });
     }

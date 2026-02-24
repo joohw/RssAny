@@ -8,12 +8,14 @@ export type RefreshInterval = Exclude<CacheKeyStrategy, "forever">;
 
 
 /** 合法的刷新间隔值列表（用于运行时校验） */
-export const VALID_INTERVALS: RefreshInterval[] = ["10min", "30min", "1h", "6h", "12h", "1day", "3day", "7day"];
+export const VALID_INTERVALS: RefreshInterval[] = ["1min", "5min", "10min", "30min", "1h", "6h", "12h", "1day", "3day", "7day"];
 
 
 /** 将 RefreshInterval 转换为对应的毫秒数 */
 export function refreshIntervalToMs(interval: RefreshInterval): number {
   const map: Record<RefreshInterval, number> = {
+    "1min": 1 * 60 * 1000,
+    "5min": 5 * 60 * 1000,
     "10min": 10 * 60 * 1000,
     "30min": 30 * 60 * 1000,
     "1h": 60 * 60 * 1000,

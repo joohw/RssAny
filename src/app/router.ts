@@ -63,7 +63,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const headlessParam = c.req.query("headless");
     const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
     try {
-      const result = await getRssFn(url, { cacheDir: CACHE_DIR, headless });
+      const result = await getRssFn(url, { cacheDir: CACHE_DIR, headless, skipDb: true });
       return c.json({
         fromCache: result.fromCache,
         items: result.items.map((item) => ({
@@ -247,8 +247,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const result = await parseHtml(res.body, {
         url: res.finalUrl ?? url,
         customParser: site?.parser ?? undefined,
-        cacheDir: CACHE_DIR,
-        useCache: false,
       });
       return c.json(result);
     } catch (err) {
@@ -271,8 +269,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const proxy = site?.proxy;
       const result = await extractFromLink(url, {
         customExtractor: site?.extractor ?? undefined,
-        cacheDir: CACHE_DIR,
-        useCache: false,
       }, {
         timeoutMs: 60_000,
         headless,

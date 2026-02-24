@@ -1,48 +1,91 @@
-// EmailSource 存根：IMAP 邮件信源接口占位，待实现
+// EmailSource：IMAP 邮件信源，将收件箱最新邮件转为 FeedItem 列表
 
+import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import { createHash } from "node:crypto";
 import type { Source, SourceContext } from "../types.js";
 import type { FeedItem } from "../../types/feedItem.js";
 
 
-/**
- * Email 信源配置。
- * 连接字符串格式: imap://user:pass@host:port/INBOX
- * 或              imaps://user:pass@host:port/INBOX（SSL）
- *
- * 待实现：
- *   - 使用 imapflow 或 node-imap 连接 IMAP 服务器
- *   - 读取未读邮件，映射 From/Subject/Date/Body → FeedItem
- *   - 支持 OAuth2 Token 认证
- *   - 支持过滤条件（发件人白名单、文件夹、已读/未读）
- */
-export interface EmailSourceConfig {
-  /** IMAP 连接字符串，如 imaps://user:pass@imap.gmail.com:993/INBOX */
-  connectionString: string;
-  /** 最多拉取邮件条数，默认 50 */
-  limit?: number;
-  /** 是否只拉取未读邮件，默认 true */
-  unreadOnly?: boolean;
+
+// 解析 IMAP URL：格式 imaps://user%40host:pass@imap.host:993/INBOX?limit=30
+function parseImapUrl(sourceId: string): {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  folder: string;
+  limit: number;
+} {
+  const url = new URL(sourceId);
+  const host = url.hostname;
+  const port = url.port ? parseInt(url.port, 10) : 993;
+  const secure = url.protocol === "imaps:" || port === 993;
+  const user = decodeURIComponent(url.username);
+  const pass = decodeURIComponent(url.password);
+  const folder = decodeURIComponent(url.pathname.slice(1)) || "INBOX";
+  const limit = Math.max(1, parseInt(url.searchParams.get("limit") ?? "30", 10));
+  return { host, port, secure, user, pass, folder, limit };
 }
 
 
-/** 将 IMAP 连接字符串包装为 Source（暂未实现，调用时抛出 NotImplementedError） */
-export function createEmailSource(config: EmailSourceConfig): Source {
-  let url: URL;
-  try {
-    url = new URL(config.connectionString);
-  } catch {
-    throw new Error(`无效的 Email 连接字符串: ${config.connectionString}`);
-  }
-  const id = `email:${url.hostname}${url.pathname}`;
-  return {
-    id,
-    pattern: new RegExp(`^imaps?://${url.hostname.replace(/\./g, "\\.")}`),
-    async fetchItems(_sourceId: string, _ctx: SourceContext): Promise<FeedItem[]> {
-      throw new Error(
-        "[EmailSource] 尚未实现。\n" +
-        "计划依赖：imapflow（已有 npm 包），OAuth2 支持需额外配置。\n" +
-        "欢迎贡献：src/sources/email/index.ts"
-      );
-    },
-  };
+
+// 根据 messageId 或 uid@host 生成唯一 guid
+function makeGuid(messageId: string | null | undefined, uid: number, host: string): string {
+  const raw = messageId ?? `${uid}@${host}`;
+  return createHash("sha256").update(raw).digest("hex");
 }
+
+
+
+/** 内置 EmailSource：匹配所有 imap:// 和 imaps:// 协议 URL，刷新间隔 30 分钟 */
+export const emailSource: Source = {
+  id: "__email__",
+  pattern: /^imaps?:\/\//,
+  refreshInterval: "30min",
+  async fetchItems(sourceId: string, _ctx: SourceContext): Promise<FeedItem[]> {
+    const { host, port, secure, user, pass, folder, limit } = parseImapUrl(sourceId);
+    const client = new ImapFlow({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+      logger: false,
+    });
+    await client.connect();
+    const items: FeedItem[] = [];
+    try {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        const total = client.mailbox?.exists ?? 0;
+        if (total === 0) return [];
+        const start = Math.max(1, total - limit + 1);
+        for await (const msg of client.fetch(`${start}:*`, { source: true, envelope: true })) {
+          try {
+            const parsed = await simpleParser(msg.source);
+            const envelope = msg.envelope;
+            const guid = makeGuid(envelope.messageId, msg.uid, host);
+            const title = parsed.subject ?? envelope.subject ?? "(无主题)";
+            const fromAddr = envelope.from?.[0];
+            const author = fromAddr?.name || fromAddr?.address || undefined;
+            const pubDate = parsed.date ?? envelope.date ?? new Date();
+            const link = `imap://${host}/${encodeURIComponent(folder)}#${msg.uid}`;
+            const htmlBody = typeof parsed.html === "string" ? parsed.html : undefined;
+            const textBody = typeof parsed.text === "string" ? parsed.text : undefined;
+            const contentHtml = htmlBody ?? (textBody ? `<pre>${textBody}</pre>` : undefined);
+            const summary = textBody?.slice(0, 300) || undefined;
+            items.push({ guid, title, link, pubDate, author, summary, contentHtml });
+          } catch (err) {
+            console.warn("[email] 解析单封邮件失败:", err instanceof Error ? err.message : err);
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    } finally {
+      await client.logout();
+    }
+    return items.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
+  },
+};

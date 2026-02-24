@@ -51,6 +51,8 @@ function timeBucket(strategy: CacheKeyStrategy, now: Date): string {
   const h = now.getUTCHours();
   const hs = String(h).padStart(2, "0");
   const min = now.getUTCMinutes();
+  if (strategy === "1min") return `${y}-${mo}-${d}T${hs}:${String(min).padStart(2, "0")}`;
+  if (strategy === "5min") return `${y}-${mo}-${d}T${hs}:${String(Math.floor(min / 5) * 5).padStart(2, "0")}`;
   if (strategy === "10min") return `${y}-${mo}-${d}T${hs}:${String(Math.floor(min / 10) * 10).padStart(2, "0")}`;
   if (strategy === "30min") return `${y}-${mo}-${d}T${hs}:${min < 30 ? "00" : "30"}`;
   if (strategy === "1h") return `${y}-${mo}-${d}T${hs}`;

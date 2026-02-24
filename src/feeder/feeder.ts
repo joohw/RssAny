@@ -127,7 +127,9 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     await writeItemsCache(cacheDir, key, items);
   }
   generatingKeys.delete(key);
-  upsertItems(items, listUrl).catch((err) => console.warn("[db] upsertItems 失败:", err instanceof Error ? err.message : err));
+  if (!config.skipDb) {
+    upsertItems(items, listUrl).catch((err) => console.warn("[db] upsertItems 失败:", err instanceof Error ? err.message : err));
+  }
   if (!includeContent || items.length === 0 || source.enrichItem == null) {
     return { xml: initialXml, items };
   }
@@ -139,7 +141,9 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
       sourceUrl: listUrl,
       onItemDone: async (enrichedItem, index) => {
         items[index] = enrichedItem;
-        updateItemContent(enrichedItem).catch((err) => console.warn("[db] updateItemContent 失败:", err instanceof Error ? err.message : err));
+        if (!config.skipDb) {
+          updateItemContent(enrichedItem).catch((err) => console.warn("[db] updateItemContent 失败:", err instanceof Error ? err.message : err));
+        }
         if (cacheDir) {
           const xml = buildRssFromCache(cache);
           await writeFeedsCache(cacheDir, key, xml);
