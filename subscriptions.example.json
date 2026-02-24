@@ -1,0 +1,100 @@
+{
+  "tech": {
+    "title": "科技资讯",
+    "description": "混合多种信源类型的示例订阅",
+    "pullInterval": "1h",
+    "maxItemsPerSource": 20,
+    "sources": [
+      {
+        "ref": "https://sspai.com/feed",
+        "type": "rss",
+        "label": "少数派"
+      },
+      {
+        "ref": "https://www.ruanyifeng.com/blog/atom.xml",
+        "type": "rss",
+        "label": "阮一峰博客"
+      },
+      {
+        "ref": "https://xiaohongshu.com/user/profile/5e8d2a5b000000000100bf00",
+        "type": "web",
+        "label": "小红书-某博主"
+      },
+      {
+        "ref": "https://twitter.com/elonmusk",
+        "type": "web",
+        "label": "Twitter-Elon"
+      }
+    ]
+  },
+
+  "newsletters": {
+    "title": "邮件订阅",
+    "description": "从邮箱收件箱抓取 Newsletter",
+    "pullInterval": "6h",
+    "sources": [
+      {
+        "ref": "imaps://me%40gmail.com:your-app-password@imap.gmail.com:993/INBOX",
+        "type": "email",
+        "label": "Gmail 收件箱（需应用专用密码）"
+      },
+      {
+        "ref": "imaps://me%40outlook.com:your-password@imap-mail.outlook.com:993/INBOX",
+        "type": "email",
+        "label": "Outlook 收件箱"
+      },
+      {
+        "ref": "imap://me%40qq.com:your-auth-code@imap.qq.com:143/INBOX",
+        "type": "email",
+        "label": "QQ 邮箱收件箱（需授权码）"
+      }
+    ]
+  },
+
+  "github": {
+    "title": "GitHub 动态",
+    "description": "API 信源示例（待实现）",
+    "pullInterval": "30min",
+    "sources": [
+      {
+        "ref": "https://api.github.com/notifications",
+        "type": "api",
+        "label": "GitHub 通知（需 token）"
+      },
+      {
+        "ref": "https://api.github.com/users/torvalds/events",
+        "type": "api",
+        "label": "torvalds 的 GitHub 动态"
+      }
+    ]
+  },
+
+  "mixed": {
+    "title": "综合信息流",
+    "description": "将以上所有类型混合到同一个订阅，统一排序后入库",
+    "pullInterval": "1h",
+    "maxItemsPerSource": 10,
+    "sources": [
+      {
+        "ref": "https://feeds.feedburner.com/hacker-news/rss",
+        "type": "rss",
+        "label": "Hacker News"
+      },
+      {
+        "ref": "https://36kr.com/feed",
+        "type": "rss",
+        "label": "36氪"
+      },
+      {
+        "ref": "https://weibo.com/u/1234567890",
+        "type": "web",
+        "label": "微博-某账号"
+      },
+      {
+        "ref": "imaps://me%40gmail.com:app-password@imap.gmail.com:993/INBOX",
+        "type": "email",
+        "label": "Gmail"
+      }
+    ]
+  }
+}

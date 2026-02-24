@@ -2,10 +2,10 @@
 
 import { join } from "node:path";
 import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
-import { readCached, writeCached } from "../cacher/index.js";
+import { readCached, writeCached } from "../../../cacher/index.js";
 import { applyPurify } from "./purify.js";
 import { findChromeExecutable } from "./cdp.js";
-import type { AuthFlow } from "../auth/index.js";
+import type { AuthFlow } from "../../../auth/index.js";
 import type { RequestConfig, StructuredHtmlResult } from "./types.js";
 
 

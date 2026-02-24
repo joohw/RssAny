@@ -1,6 +1,7 @@
 // Feeder 配置与返回类型
 
 import type { FeedItem } from "../types/feedItem.js";
+import type { RefreshInterval } from "../utils/refreshInterval.js";
 
 
 export interface FeederConfig {
@@ -10,6 +11,10 @@ export interface FeederConfig {
   includeContent?: boolean;
   /** 是否使用无头浏览器，默认 true；设为 false 时使用有头浏览器（可视化） */
   headless?: boolean;
+  /** 调用方传入的有效时间窗口覆盖：优先级最高，覆盖 source 声明 */
+  refreshInterval?: RefreshInterval;
+  /** 调用方传入的代理覆盖：优先级最高，覆盖 source 声明 */
+  proxy?: string;
 }
 
 

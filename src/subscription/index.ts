@@ -4,9 +4,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { getItems } from "../feeder/index.js";
 import type { FeedItem } from "../types/feedItem.js";
 import type { SubscriptionConfig, SubscriptionsMap } from "./types.js";
+import { resolveRef } from "./types.js";
 import { SUBSCRIPTIONS_CONFIG_PATH } from "../config/paths.js";
 
-export type { SubscriptionConfig, SubscriptionsMap } from "./types.js";
+export type { SubscriptionConfig, SubscriptionsMap, SubscriptionSource, SourceType } from "./types.js";
 
 
 /** 订阅聚合结果 */
@@ -15,8 +16,8 @@ export interface SubscriptionResult {
   title?: string;
   description?: string;
   items: FeedItem[];
-  /** 各信源拉取结果：fulfilled 表示成功，rejected 表示失败（url + reason） */
-  sourceResults: Array<{ url: string; status: "fulfilled" | "rejected"; count?: number; reason?: string }>;
+  /** 各信源拉取结果：fulfilled 表示成功，rejected 表示失败（ref + reason） */
+  sourceResults: Array<{ ref: string; label?: string; status: "fulfilled" | "rejected"; count?: number; reason?: string }>;
 }
 
 
@@ -43,20 +44,25 @@ export async function getSubscription(id: string, cacheDir = "cache"): Promise<S
   const config = subs[id];
   if (!config) return null;
   const settled = await Promise.allSettled(
-    config.sources.map((src) =>
-      getItems(src.url, { cacheDir }).then((items) => ({ url: src.url, items }))
-    )
+    config.sources.map((src) => {
+      const ref = resolveRef(src);
+      return getItems(ref, { cacheDir, refreshInterval: src.refresh, proxy: src.proxy }).then((items) => ({ ref, label: src.label, items }));
+    })
   );
   const allItems: FeedItem[] = [];
   const sourceResults: SubscriptionResult["sourceResults"] = [];
-  for (const result of settled) {
+  for (let i = 0; i < settled.length; i++) {
+    const result = settled[i];
+    const src = config.sources[i];
+    const ref = resolveRef(src);
+    const label = src.label;
     if (result.status === "fulfilled") {
       const sourceItems = config.maxItemsPerSource ? result.value.items.slice(0, config.maxItemsPerSource) : result.value.items;
       allItems.push(...sourceItems);
-      sourceResults.push({ url: result.value.url, status: "fulfilled", count: sourceItems.length });
+      sourceResults.push({ ref, label, status: "fulfilled", count: sourceItems.length });
     } else {
       const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      sourceResults.push({ url: "unknown", status: "rejected", reason });
+      sourceResults.push({ ref, label, status: "rejected", reason });
     }
   }
   allItems.sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));

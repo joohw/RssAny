@@ -1,7 +1,7 @@
 // fetcher 请求配置：对 fetch RequestInit 的封装与扩展
 
 import type { BrowserContext } from "puppeteer-core";
-import type { AuthFlow, CheckAuthFn } from "../auth/index.js";
+import type { AuthFlow, CheckAuthFn } from "../../../auth/index.js";
 
 
 /** 缓存键策略：forever=仅 sha256(url)；其余值将时间窗口嵌入 key，窗口过期后 key 自然失效，无需主动 TTL 检查 */
@@ -41,6 +41,7 @@ export interface RequestConfig {
   /** 浏览器上下文配置函数：在创建页面后调用，可用于设置 cookies、localStorage 等；(context) => Promise<void> */
   browserContext?: ((context: BrowserContext) => Promise<void>) | null;
 }
+
 
 // fetcher 返回的结构化 HTML 结果
 export interface StructuredHtmlResult {

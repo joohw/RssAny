@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { watch } from "node:fs";
 import { serve } from "@hono/node-server";
 import { createApp } from "./router.js";
-import { initSites } from "../sites/index.js";
+import { initSources as initSites } from "../sources/index.js";
 import { initScheduler } from "../scheduler/index.js";
 import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../config/paths.js";
 

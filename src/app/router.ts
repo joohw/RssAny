@@ -3,15 +3,19 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getRss } from "../feeder/index.js";
-import { getSubscription, listSubscriptions, getAllSubscriptionConfigs, createOrUpdateSubscription, deleteSubscription } from "../subscription/index.js";
-import { extractFromLink } from "../extractor/index.js";
-import { parseHtml } from "../parser/index.js";
-import { fetchHtml, ensureAuth, preCheckAuth, getOrCreateBrowser } from "../fetcher/index.js";
-import { getSite, getSiteById, getSiteForExtraction, toAuthFlow, registeredSites, getProxy, getSiteConfigEntries, upsertSiteConfigEntry, deleteSiteConfigEntry } from "../sites/index.js";
+import { onFeedUpdated } from "../events/index.js";
+import { getSubscription, listSubscriptions, getAllSubscriptionConfigs } from "../subscription/index.js";
+import { resolveRef } from "../subscription/types.js";
+import { extractFromLink } from "../sources/web/extractor/index.js";
+import { parseHtml } from "../sources/web/parser/index.js";
+import { fetchHtml, ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sources/web/fetcher/index.js";
+import { getWebSite, getSiteForDetail, getBestSite, getPluginSites, toAuthFlow } from "../sources/web/index.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
-import { queryItems, getPendingPushItems, markPushed } from "../db/index.js";
+import { queryItems, queryItemsBySource, getPendingPushItems, markPushed } from "../db/index.js";
+import { refreshIntervalToMs } from "../utils/refreshInterval.js";
 
 
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
@@ -72,33 +76,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
     }
   });
-  // API：获取所有站点配置
-  app.get("/api/sites", (c) => {
-    const list = getSiteConfigEntries().map(([pattern, , cfg]) => ({ pattern, ...cfg }));
-    return c.json(list);
-  });
-  // API：新增或更新站点配置
-  app.post("/api/sites", async (c) => {
-    try {
-      const body = await c.req.json<{ pattern?: string; proxy?: string; refresh?: string }>();
-      if (!body.pattern?.trim()) return c.json({ ok: false, message: "pattern 不能为空" }, 400);
-      await upsertSiteConfigEntry(body.pattern.trim(), { proxy: body.proxy || undefined, refresh: body.refresh as never || undefined });
-      return c.json({ ok: true });
-    } catch (err) {
-      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
-    }
-  });
-  // API：删除站点配置（body 中传 pattern）
-  app.delete("/api/sites", async (c) => {
-    try {
-      const body = await c.req.json<{ pattern?: string }>();
-      if (!body.pattern) return c.json({ ok: false, message: "pattern 不能为空" }, 400);
-      const deleted = await deleteSiteConfigEntry(body.pattern);
-      return c.json({ ok: deleted, message: deleted ? undefined : "未找到该配置" });
-    } catch (err) {
-      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
-    }
-  });
   // API：查询数据库条目列表（支持 source_url / q 过滤、分页）
   app.get("/api/items", async (c) => {
     const sourceUrl = c.req.query("source") ?? undefined;
@@ -107,6 +84,45 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const offset = Number(c.req.query("offset") ?? 0);
     const result = await queryItems({ sourceUrl, q, limit, offset });
     return c.json(result);
+  });
+  // API：从数据库读取所有订阅的条目，纯 DB 查询，不触发任何实时抓取
+  app.get("/api/feed", async (c) => {
+    const subs = await getAllSubscriptionConfigs();
+    const results = await Promise.all(
+      subs.map(async (sub) => {
+        const maxPerSource = sub.maxItemsPerSource ?? 50;
+        const itemsPerSource = await Promise.all(
+          sub.sources.map((src) => {
+            const since = src.refresh ? new Date(Date.now() - refreshIntervalToMs(src.refresh)) : undefined;
+            return queryItemsBySource(resolveRef(src), maxPerSource, since);
+          })
+        );
+        const items = itemsPerSource.flat().sort((a, b) => {
+          const ta = new Date(a.pub_date ?? a.fetched_at).getTime();
+          const tb = new Date(b.pub_date ?? b.fetched_at).getTime();
+          return tb - ta;
+        });
+        return { id: sub.id, title: sub.title, items };
+      })
+    );
+    return c.json({ subscriptions: results });
+  });
+  // SSE：推送后台抓取进度，客户端通过 EventSource 实时感知新条目
+  app.get("/api/events", (c) => {
+    return streamSSE(c, async (stream) => {
+      await stream.writeSSE({ data: JSON.stringify({ type: "connected" }) });
+      const off = onFeedUpdated((e) => {
+        stream.writeSSE({ data: JSON.stringify({ type: "feed:updated", sourceUrl: e.sourceUrl, newCount: e.newCount }) }).catch(() => {});
+      });
+      const heartbeat = setInterval(() => {
+        stream.writeSSE({ data: "", event: "ping" }).catch(() => {});
+      }, 25000);
+      stream.onAbort(() => {
+        off();
+        clearInterval(heartbeat);
+      });
+      await new Promise<void>((resolve) => stream.onAbort(resolve));
+    });
   });
   // API：获取待推送给 OpenWebUI 的条目（content 不为空且未推送）
   app.get("/api/items/pending-push", async (c) => {
@@ -127,7 +143,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
   });
   // API：返回插件列表 JSON
   app.get("/api/plugins", (c) => {
-    const plugins = registeredSites.filter((s) => s.id !== "generic").map((s) => ({
+    const plugins = getPluginSites().map((s) => ({
       id: s.id,
       listUrlPattern: typeof s.listUrlPattern === "string" ? s.listUrlPattern : String(s.listUrlPattern),
       hasParser: !!s.parser,
@@ -136,53 +152,13 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     }));
     return c.json(plugins);
   });
-  // 获取所有订阅完整配置（管理页面用）
-  app.get("/api/subscription", async (c) => {
-    const configs = await getAllSubscriptionConfigs();
-    return c.json(configs);
-  });
-  // 创建或更新订阅（body 含 id 字段时视为创建，否则用 :id 参数）
-  app.post("/api/subscription", async (c) => {
-    try {
-      const body = await c.req.json() as { id?: string; title?: string; description?: string; sources?: unknown[]; maxItemsPerSource?: number; refreshIntervalMs?: number };
-      const { id, ...config } = body;
-      if (!id || typeof id !== "string" || !Array.isArray(config.sources)) return c.json({ ok: false, message: "缺少必要字段 id / sources" }, 400);
-      await createOrUpdateSubscription(id, config as Parameters<typeof createOrUpdateSubscription>[1]);
-      return c.json({ ok: true });
-    } catch (err) {
-      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
-  // 更新指定订阅配置
-  app.put("/api/subscription/:id", async (c) => {
-    try {
-      const id = c.req.param("id");
-      const config = await c.req.json() as Parameters<typeof createOrUpdateSubscription>[1];
-      if (!Array.isArray(config.sources)) return c.json({ ok: false, message: "缺少必要字段 sources" }, 400);
-      await createOrUpdateSubscription(id, config);
-      return c.json({ ok: true });
-    } catch (err) {
-      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
-  // 删除指定订阅
-  app.delete("/api/subscription/:id", async (c) => {
-    try {
-      const id = c.req.param("id");
-      const deleted = await deleteSubscription(id);
-      if (!deleted) return c.json({ ok: false, message: "订阅不存在" }, 404);
-      return c.json({ ok: true });
-    } catch (err) {
-      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 500);
-    }
-  });
   // 检查登录状态
   app.get("/auth/check", async (c) => {
     const siteIdParam = c.req.query("siteId");
     if (!siteIdParam) {
       return c.json({ ok: false, message: "请提供 siteId" }, 400);
     }
-    const site = getSiteById(siteIdParam);
+    const site = getWebSite(siteIdParam);
     if (!site) return c.json({ ok: false, message: "无此站点" }, 404);
     const authFlow = toAuthFlow(site);
     if (!authFlow) return c.json({ ok: false, message: "该站点无需登录" }, 400);
@@ -200,7 +176,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     if (!siteIdParam) {
       return c.json({ ok: false, message: "请提供 siteId" }, 400);
     }
-    const site = getSiteById(siteIdParam);
+    const site = getWebSite(siteIdParam);
     if (!site) return c.json({ ok: false, message: "无此站点" }, 404);
     const authFlow = toAuthFlow(site);
     if (!authFlow) return c.json({ ok: false, message: "该站点无需登录" }, 400);
@@ -223,10 +199,10 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     let site;
     if (urlParam) {
       const decoded = decodeURIComponent(urlParam);
-      site = getSite(decoded);
+      site = getBestSite(decoded);
       if (!site) return c.json({ ok: false, message: "无匹配站点" }, 404);
     } else if (siteIdParam) {
-      site = getSiteById(siteIdParam);
+      site = getWebSite(siteIdParam);
       if (!site) return c.json({ ok: false, message: "无此站点" }, 404);
     } else {
       return c.json({ ok: false, message: "请提供 url 或 siteId" }, 400);
@@ -246,10 +222,9 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     try {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
-      const site = getSite(url);
-      if (!site) return c.text("无匹配站点", 404);
-      const authFlow = toAuthFlow(site);
-      const proxy = getProxy(url);
+      const site = getBestSite(url);
+      const authFlow = site ? toAuthFlow(site) : undefined;
+      const proxy = site?.proxy;
       const res = await fetchHtml(url, {
         cacheDir: CACHE_DIR,
         useCache: false,
@@ -263,7 +238,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       }
       const result = await parseHtml(res.body, {
         url: res.finalUrl ?? url,
-        customParser: site.parser ?? undefined,
+        customParser: site?.parser ?? undefined,
         cacheDir: CACHE_DIR,
         useCache: false,
       });
@@ -284,8 +259,8 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     try {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
-      const site = getSiteForExtraction(url) ?? getSite(url);
-      const proxy = getProxy(url);
+      const site = getSiteForDetail(url) ?? getBestSite(url);
+      const proxy = site?.proxy;
       const result = await extractFromLink(url, {
         customExtractor: site?.extractor ?? undefined,
         cacheDir: CACHE_DIR,
@@ -353,11 +328,11 @@ export function createApp(getRssFn: typeof getRss = getRss) {
   });
   // 页面路由：从 statics/ 目录提供静态 HTML 页面
   app.get("/", async (c) => {
-    const html = await readStaticHtml("home", "<h1>RssAny</h1>");
+    const html = await readStaticHtml("feed", "<h1>Feed</h1>");
     return c.html(html);
   });
-  app.get("/sites", async (c) => {
-    const html = await readStaticHtml("sites", "<h1>Sites</h1>");
+  app.get("/web2rss", async (c) => {
+    const html = await readStaticHtml("home", "<h1>Web2RSS</h1>");
     return c.html(html);
   });
   app.get("/plugins", async (c) => {
@@ -378,10 +353,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
   });
   app.get("/extractor", async (c) => {
     const html = await readStaticHtml("extract", "<h1>Extractor</h1>");
-    return c.html(html);
-  });
-  app.get("/subscriptions", async (c) => {
-    const html = await readStaticHtml("subscription", "<h1>Subscriptions</h1>");
     return c.html(html);
   });
   // 静态文件服务：statics/ 目录（直接访问 .html 文件等）

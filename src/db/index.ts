@@ -5,6 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
 import { DATA_DIR } from "../config/paths.js";
+import { emitFeedUpdated } from "../events/index.js";
 
 
 let _db: Database.Database | null = null;
@@ -49,17 +50,18 @@ function initSchema(db: Database.Database): void {
 }
 
 
-/** 批量插入条目（已存在则跳过），仅写 title/summary 等列表级字段 */
-export async function upsertItems(items: FeedItem[], sourceUrl: string): Promise<void> {
+/** 批量插入条目（已存在则跳过），返回实际新增数量，有新条目时广播 feed:updated 事件 */
+export async function upsertItems(items: FeedItem[], sourceUrl: string): Promise<number> {
   const db = await getDb();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO items (id, url, source_url, title, author, summary, pub_date, fetched_at)
     VALUES (@id, @url, @sourceUrl, @title, @author, @summary, @pubDate, @fetchedAt)
   `);
   const now = new Date().toISOString();
+  let newCount = 0;
   const run = db.transaction((rows: FeedItem[]) => {
     for (const item of rows) {
-      stmt.run({
+      const info = stmt.run({
         id: item.guid,
         url: item.link,
         sourceUrl,
@@ -69,9 +71,12 @@ export async function upsertItems(items: FeedItem[], sourceUrl: string): Promise
         pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null),
         fetchedAt: now,
       });
+      newCount += info.changes;
     }
   });
   run(items);
+  if (newCount > 0) emitFeedUpdated({ sourceUrl, newCount });
+  return newCount;
 }
 
 
@@ -93,15 +98,29 @@ export async function updateItemContent(item: FeedItem): Promise<void> {
 }
 
 
-/** 查询条目列表，支持按 source_url 过滤与全文搜索，返回分页结果 */
+/** 按单个信源 URL 查询最新条目，按发布时间降序，供 /api/feed 使用；since 限制只返回该时间点之后的条目 */
+export async function queryItemsBySource(sourceUrl: string, limit = 50, since?: Date): Promise<DbItem[]> {
+  const db = await getDb();
+  const sinceClause = since ? "AND COALESCE(pub_date, fetched_at) >= @since" : "";
+  return db.prepare(`
+    SELECT * FROM items
+    WHERE source_url = @sourceUrl ${sinceClause}
+    ORDER BY COALESCE(pub_date, fetched_at) DESC
+    LIMIT @limit
+  `).all({ sourceUrl, limit, since: since?.toISOString() ?? null }) as DbItem[];
+}
+
+
+/** 查询条目列表，支持按 source_url 过滤、全文搜索与 since 时间过滤，返回分页结果 */
 export async function queryItems(opts: {
   sourceUrl?: string;
   q?: string;
   limit?: number;
   offset?: number;
+  since?: Date;
 }): Promise<{ items: DbItem[]; total: number }> {
   const db = await getDb();
-  const { sourceUrl, q, limit = 20, offset = 0 } = opts;
+  const { sourceUrl, q, limit = 20, offset = 0, since } = opts;
   const conditions: string[] = [];
   const params: Record<string, unknown> = { limit, offset };
   if (sourceUrl) {
@@ -111,6 +130,10 @@ export async function queryItems(opts: {
   if (q) {
     conditions.push("i.rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH @q)");
     params.q = q;
+  }
+  if (since) {
+    conditions.push("COALESCE(i.pub_date, i.fetched_at) >= @since");
+    params.since = since.toISOString();
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = db.prepare(`

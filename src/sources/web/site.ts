@@ -1,9 +1,10 @@
-// 站点抽象接口：声明 URL 形态、parser、extractor、auth
+// 站点抽象接口：声明 URL 形态、parser、extractor、auth（WebSource 专用）
 
 import type { BrowserContext } from "puppeteer-core";
-import type { CustomParserFn } from "../parser/parser.js";
-import type { CustomExtractorFn } from "../extractor/types.js";
-import type { AuthFlow, CheckAuthFn } from "../auth/index.js";
+import type { CustomParserFn } from "./parser/parser.js";
+import type { CustomExtractorFn } from "./extractor/types.js";
+import type { AuthFlow, CheckAuthFn } from "../../auth/index.js";
+import type { RefreshInterval } from "../../utils/refreshInterval.js";
 
 
 /** 将 listUrlPattern 转为 RegExp：{xxx} → [^/]+，其余转义，末尾允许 ?query */
@@ -27,6 +28,10 @@ export interface Site {
   readonly listUrlPattern: string | RegExp;
   /** 详情页 URL 模式，用于 /extractor 匹配；不填则按 domain 匹配，如 "https://www.xiaohongshu.com/explore/{noteId}" */
   readonly detailUrlPattern?: string | RegExp | null;
+  /** 条目有效时间窗口：该站点内容的刷新频率，作用于缓存键、DB 查询和调度间隔；不填默认 1day */
+  readonly refreshInterval?: RefreshInterval;
+  /** 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080；不填则使用 env HTTP_PROXY */
+  readonly proxy?: string;
   /** 列表页解析器，不填则使用 LLM 解析 */
   readonly parser?: CustomParserFn | null;
   /** 详情页正文提取器，不填则使用 LLM 提取 */

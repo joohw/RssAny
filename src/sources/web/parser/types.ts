@@ -17,6 +17,7 @@ export interface ReadabilityArticle {
   dir: string | null;
 }
 
+
 // 用于生成 RSS/Atom 的条目：在 Readability 结果上补充 link、published 等
 export interface ParsedEntry {
   /** 条目标题 */

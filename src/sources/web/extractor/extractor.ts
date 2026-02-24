@@ -4,10 +4,10 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
-import { cacheKey as cacherCacheKey } from "../cacher/index.js";
+import { cacheKey as cacherCacheKey } from "../../../cacher/index.js";
 import { fetchHtml } from "../fetcher/index.js";
 import type { RequestConfig } from "../fetcher/types.js";
-import type { FeedItem } from "../types/feedItem.js";
+import type { FeedItem } from "../../../types/feedItem.js";
 import type { ExtractedResult, ExtractorConfig } from "./types.js";
 
 

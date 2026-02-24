@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { CacheKeyStrategy, StructuredHtmlResult } from "../fetcher/types.js";
+import type { CacheKeyStrategy, StructuredHtmlResult } from "../sources/web/fetcher/types.js";
 
 
 const FETCHED_SUBDIR = "fetched";

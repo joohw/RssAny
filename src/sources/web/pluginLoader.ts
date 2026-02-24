@@ -3,8 +3,8 @@
 import { readdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import type { Site } from "./types.js";
-import { BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../config/paths.js";
+import type { Site } from "./site.js";
+import { BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../../config/paths.js";
 
 
 const PLUGIN_EXTENSIONS = [".rssany.js", ".rssany.ts"];

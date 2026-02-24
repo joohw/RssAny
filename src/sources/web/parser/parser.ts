@@ -3,11 +3,11 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { cacheKey as cacherCacheKey } from "../cacher/index.js";
+import { cacheKey as cacherCacheKey } from "../../../cacher/index.js";
 import { applyPurify } from "../fetcher/purify.js";
-import { chatJson } from "../llm/index.js";
-import { getLLMConfig } from "../llm/config.js";
-import type { FeedItem } from "../types/feedItem.js";
+import { chatJson } from "../../../llm/index.js";
+import { getLLMConfig } from "../../../llm/config.js";
+import type { FeedItem } from "../../../types/feedItem.js";
 import type { ParsedEntry } from "./types.js";
 
 
@@ -29,6 +29,7 @@ export interface ParsedListResult {
   /** 解析模式 */
   mode?: ParserMode;
 }
+
 
 /** 解析结果缓存结构 */
 interface ParsedCache extends ParsedListResult {
@@ -233,20 +234,16 @@ export async function parseHtml(html: string, config: ParserConfig = {}): Promis
   } else {
     throw new Error(`不支持的解析模式: ${actualMode}`);
   }
-
   const items = entries.map((e) => toFeedItem(e, includeContent));
-
   const result: ParsedListResult = {
     items,
     url,
     mode: actualMode,
   };
-
   // 如果提供了缓存目录，总是写入缓存（即使 useCache 为 false，也写入以便后续使用）
   if (cacheDir != null && cacheDir !== "") {
     const key = resolveKey();
     await writeCachedResult(cacheDir, key, result);
   }
-
   return result;
 }

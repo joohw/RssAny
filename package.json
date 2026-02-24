@@ -34,7 +34,9 @@
   ],
   "license": "MIT",
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
@@ -55,9 +57,11 @@
     "better-sqlite3": "^12.6.2",
     "dotenv": "^16.4.7",
     "hono": "^4.6.0",
+    "https-proxy-agent": "^7.0.6",
     "jsdom": "^25.0.0",
     "node-html-parser": "^7.0.2",
     "openai": "^4.76.1",
-    "puppeteer-core": "^24.36.0"
+    "puppeteer-core": "^24.36.0",
+    "rss-parser": "^3.13.0"
   }
 }
