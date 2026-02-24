@@ -133,29 +133,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 - **代理支持**：通过 `.rssany/sites.json` 正则匹配配置站点级代理
 - **认证管理**：自动检测登录状态，支持有头浏览器手动登录
 
-## 下一步建议
 
-### 1. OpenWebUI 推送脚本（优先级：高）
-实现一个独立的推送脚本或定时任务，将 `pending-push` 条目批量推送到 OpenWebUI 知识库：
-- 调用 `GET /api/items/pending-push?limit=100`
-- 将 content 按 Markdown 格式封装后，`POST /api/v1/files`（OpenWebUI API）
-- 成功后调用 `POST /api/items/mark-pushed`
-- 可作为 `/api/push` 路由或独立 cron 脚本运行
-
-### 2. 定时刷新机制（优先级：高）
-目前只有 HTTP 请求才会触发抓取，数据库不会自动增量。需要实现：
-- 订阅的定时刷新（参考 `.rssany/sites.json` 中配置的 refresh 间隔）
-- 在 `src/app/index.ts` 的 `main()` 中启动定时器，按 refresh 策略轮流触发各订阅信源
-
-### 3. 前端迁移至 SvelteKit（优先级：中）
-当架构稳定后，将 `statics/*.html` 迁移到 SvelteKit：
-- topbar 等公共组件统一管理，告别跨文件复制粘贴
-- SvelteKit 可以直接与 Hono 后端并存，职责清晰
-- 建议时机：定时刷新和 OpenWebUI 推送完成后
-
-### 4. 数据库维护（优先级：低）
-- 实现 `VACUUM` + 旧数据清理接口（如 30 天前且已推送的条目）
-- 在管理页面增加数据库统计展示（总条目数、待推送数、各信源条目数）
 
 ## 插件规则
 

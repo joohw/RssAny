@@ -7,145 +7,75 @@
   <title>Preview - RssAny</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0 }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #111; min-height: 100vh }
-
-    /* ── Topbar ── */
-    .topbar { height: 48px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; padding: 0 1.25rem; position: sticky; top: 0; z-index: 20; gap: 0.5rem }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #111; height: 100vh; overflow: hidden; display: flex; flex-direction: column }
+    .topbar { height: 48px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; padding: 0 1.25rem; gap: 1.5rem; flex-shrink: 0; z-index: 20 }
     .topbar-brand { font-size: 1rem; font-weight: 700; color: #111; text-decoration: none; letter-spacing: -0.02em }
-    .topbar-github { display: flex; align-items: center; color: #bbb; transition: color 0.15s }
-    .topbar-github:hover { color: #111 }
-    .topbar-nav { display: flex; gap: 1rem; margin-left: auto }
+    .topbar-nav { display: flex; gap: 1rem; margin-left: auto; align-items: center }
     .topbar-nav a { font-size: 0.8125rem; color: #555; text-decoration: none }
     .topbar-nav a:hover { color: #111 }
 
-    /* ── Layout ── */
-    .container { max-width: 720px; margin: 0 auto; padding: 2rem 1.25rem 4rem }
+    .feed-wrap { flex: 1; display: flex; overflow: hidden; max-width: 720px; width: 100%; margin: 0 auto }
+    .feed-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb }
 
-    /* ── Feed header ── */
-    .feed-meta { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.125rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem }
-    .feed-meta-info { flex: 1; min-width: 0 }
-    .feed-meta-url { font-size: 0.8rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-    .feed-meta-status { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; margin-top: 0.3rem }
-    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em }
-    .badge-cache { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0 }
-    .badge-live { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa }
-    .badge-loading { background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd }
-    .badge-extracting { background: #fefce8; color: #854d0e; border: 1px solid #fef08a }
-    .badge-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca }
-
-    .rss-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0 }
-    .btn-copy { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.875rem; background: #111; color: #fff; border: none; border-radius: 7px; font-size: 0.8125rem; cursor: pointer; font-family: inherit; transition: background 0.15s; white-space: nowrap }
+    .feed-header { padding: 0.875rem 1.25rem; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0 }
+    .feed-header-url { flex: 1; min-width: 0; font-size: 0.8rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+    .feed-header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0 }
+    .btn-copy { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.75rem; background: #111; color: #fff; border: none; border-radius: 6px; font-size: 0.775rem; cursor: pointer; font-family: inherit; transition: background 0.15s; white-space: nowrap }
     .btn-copy:hover { background: #333 }
     .btn-copy.copied { background: #16a34a }
-    .btn-rss { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0.75rem; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 7px; font-size: 0.8125rem; cursor: pointer; text-decoration: none; font-family: inherit; transition: background 0.15s; white-space: nowrap }
-    .btn-rss:hover { background: #ffedd5 }
+    .btn-rss { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.75rem; background: none; color: #888; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 0.775rem; cursor: pointer; text-decoration: none; font-family: inherit; transition: all 0.15s; white-space: nowrap }
+    .btn-rss:hover { color: #111; border-color: #aaa }
+    .refresh-btn { font-size: 0.75rem; color: #888; background: none; border: none; cursor: pointer; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: inherit }
+    .refresh-btn:hover { color: #111; background: #f5f5f5 }
+    .refresh-btn.loading { opacity: 0.5; pointer-events: none }
 
-    /* ── Loading state ── */
-    .loading-state { text-align: center; padding: 4rem 1rem; color: #999 }
-    .spinner { width: 28px; height: 28px; border: 2px solid #e5e7eb; border-top-color: #111; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 0.75rem }
-    @keyframes spin { to { transform: rotate(360deg) } }
-    .error-state { text-align: center; padding: 3rem 1rem }
-    .error-icon { font-size: 2rem; margin-bottom: 0.75rem }
-    .error-msg { color: #b91c1c; font-size: 0.9375rem; margin-bottom: 1rem }
-    .error-hint { color: #888; font-size: 0.8rem }
-    .retry-btn { margin-top: 1.25rem; padding: 0.5rem 1.25rem; background: #111; color: #fff; border: none; border-radius: 7px; cursor: pointer; font-family: inherit; font-size: 0.875rem }
+    .feed-list { flex: 1; overflow-y: auto }
+    .feed-list::-webkit-scrollbar { width: 4px }
+    .feed-list::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px }
 
-    /* ── Items ── */
-    .items-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.875rem }
-    .items-count { font-size: 0.8rem; color: #999 }
-    .refresh-btn { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: #666; background: none; border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.3rem 0.7rem; cursor: pointer; font-family: inherit; transition: all 0.15s }
-    .refresh-btn:hover { color: #111; border-color: #aaa }
-    .refresh-btn.spinning svg { animation: spin 0.7s linear infinite }
+    .item { padding: 1rem 1.25rem; border-bottom: 1px solid #f3f3f3; transition: background 0.1s }
+    .item:hover { background: #fafafa }
+    .item-title { font-size: 0.9rem; font-weight: 500; color: #111; text-decoration: none; display: block; line-height: 1.45; margin-bottom: 0.3rem }
+    .item-title:hover { color: #0969da }
+    .item-summary { font-size: 0.8rem; color: #666; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 0.4rem }
+    .item-meta { display: flex; align-items: center; gap: 0.6rem; font-size: 0.725rem; color: #bbb }
+    .item-author { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .item-dot { width: 2px; height: 2px; background: #ccc; border-radius: 50%; flex-shrink: 0 }
 
-    .item-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 0.625rem; transition: border-color 0.15s }
-    .item-card:hover { border-color: #bbb }
-    .item-title { font-size: 0.9375rem; font-weight: 600; line-height: 1.45; margin-bottom: 0.35rem }
-    .item-title a { color: #111; text-decoration: none }
-    .item-title a:hover { text-decoration: underline }
-    .item-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem }
-    .item-author { font-size: 0.775rem; color: #666 }
-    .item-date { font-size: 0.775rem; color: #aaa }
-    .item-dot { color: #ddd; font-size: 0.7rem }
-    .item-summary { font-size: 0.8375rem; color: #666; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden }
-    .item-footer { margin-top: 0.625rem; display: flex; align-items: center; gap: 0.5rem }
+    .state { padding: 3rem 1.5rem; text-align: center; color: #aaa; font-size: 0.875rem; line-height: 1.7 }
 
-    .empty-state { text-align: center; padding: 3rem 1rem; color: #aaa }
-    .empty-icon { font-size: 2rem; margin-bottom: 0.5rem }
-
-    /* ── Extracting progress bar ── */
-    .progress-bar { height: 2px; background: #e5e7eb; border-radius: 1px; margin-bottom: 1.25rem; overflow: hidden }
-    .progress-fill { height: 100%; background: linear-gradient(90deg, #111 0%, #555 100%); border-radius: 1px; transition: width 0.4s ease }
-
-    @media (max-width: 600px) {
-      .container { padding: 1rem 0.875rem 3rem }
-      .feed-meta { flex-direction: column; align-items: flex-start }
-      .rss-actions { width: 100%; justify-content: flex-end }
-    }
+    @media (max-width: 600px) { .feed-wrap { max-width: 100% } .feed-col { border: none } }
   </style>
 </head>
 
 <body>
   <div class="topbar">
     <a class="topbar-brand" href="/">RssAny</a>
-    <a class="topbar-github" href="https://github.com/joohw/RssAny" target="_blank" rel="noopener" title="GitHub">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.341-3.369-1.341-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.202 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
-      </svg>
-    </a>
     <nav class="topbar-nav">
       <a href="/feed">信息流</a>
       <a href="/subscriptions">订阅管理</a>
-      <a href="/sites">站点配置</a>
       <a href="/plugins">插件</a>
     </nav>
   </div>
 
-  <div class="container">
-    <div id="feed-meta" class="feed-meta" style="display:none">
-      <div class="feed-meta-info">
-        <div class="feed-meta-url" id="meta-url"></div>
-        <div class="feed-meta-status" id="meta-status"></div>
+  <div class="feed-wrap">
+    <div class="feed-col">
+      <div class="feed-header">
+        <div class="feed-header-url" id="meta-url"></div>
+        <div class="feed-header-actions">
+          <button class="refresh-btn" id="refresh-btn" onclick="load(true)">↺ 刷新</button>
+          <a id="btn-open-rss" class="btn-rss" target="_blank" rel="noopener">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3"/><path d="M4 6a16 16 0 0 1 16 16"/><path d="M4 11a11 11 0 0 1 11 11"/></svg>
+            RSS
+          </a>
+          <button class="btn-copy" id="btn-copy" onclick="copyRss()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制
+          </button>
+        </div>
       </div>
-      <div class="rss-actions">
-        <a id="btn-open-rss" class="btn-rss" target="_blank" rel="noopener">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3"/><path d="M4 6a16 16 0 0 1 16 16"/><path d="M4 11a11 11 0 0 1 11 11"/></svg>
-          RSS
-        </a>
-        <button class="btn-copy" id="btn-copy" onclick="copyRss()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          复制链接
-        </button>
-      </div>
-    </div>
-
-    <div id="progress-wrap" style="display:none">
-      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
-    </div>
-
-    <div id="loading" class="loading-state">
-      <div class="spinner"></div>
-      <div>正在加载…</div>
-    </div>
-
-    <div id="error" class="error-state" style="display:none">
-      <div class="error-icon">⚠️</div>
-      <div class="error-msg" id="error-msg"></div>
-      <div class="error-hint" id="error-hint"></div>
-      <button class="retry-btn" onclick="load()">重试</button>
-    </div>
-
-    <div id="items-wrap" style="display:none">
-      <div class="items-header">
-        <span class="items-count" id="items-count"></span>
-        <button class="refresh-btn" id="refresh-btn" onclick="load(true)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-          刷新
-        </button>
-      </div>
-      <div id="items-list"></div>
-      <div id="empty" class="empty-state" style="display:none">
-        <div class="empty-icon">📭</div>
-        <div>暂无条目</div>
+      <div class="feed-list" id="feed-list">
+        <div class="state" id="feed-state">加载中…</div>
       </div>
     </div>
   </div>
@@ -155,160 +85,108 @@
     const feedUrl = params.get('url') || '';
     const headless = params.get('headless') === 'false' ? 'false' : null;
 
-    let pollTimer = null;
-    let pollCount = 0;
-    const MAX_POLL = 20;
-
     if (feedUrl) {
       document.title = 'Preview – ' + new URL(feedUrl).hostname;
+      document.getElementById('meta-url').textContent = feedUrl;
+      document.getElementById('btn-open-rss').href = rssUrl();
       load();
     } else {
-      showError('缺少 url 参数', '请在 URL 中提供 ?url=https://...');
+      document.getElementById('feed-state').textContent = '缺少 url 参数，请在 URL 中提供 ?url=https://…';
     }
+
 
     function rssUrl() {
       return location.origin + '/rss/' + encodeURIComponent(feedUrl);
     }
 
+
     function copyRss() {
-      const url = rssUrl();
-      navigator.clipboard.writeText(url).then(() => {
+      navigator.clipboard.writeText(rssUrl()).then(() => {
         const btn = document.getElementById('btn-copy');
         btn.textContent = '✓ 已复制';
         btn.classList.add('copied');
         setTimeout(() => {
-          btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制链接`;
+          btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制`;
           btn.classList.remove('copied');
         }, 2000);
       });
     }
 
-    function formatDate(iso) {
-      if (!iso) return '';
-      const d = new Date(iso);
-      if (isNaN(d)) return '';
-      return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' });
+
+    function relativeTime(dateStr) {
+      if (!dateStr) return '';
+      const diff = Date.now() - new Date(dateStr).getTime();
+      const m = Math.floor(diff / 60000);
+      if (m < 1) return '刚刚';
+      if (m < 60) return m + ' 分钟前';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + ' 小时前';
+      const d = Math.floor(h / 24);
+      if (d < 30) return d + ' 天前';
+      return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
     }
 
-    function renderItems(items) {
-      const list = document.getElementById('items-list');
-      const empty = document.getElementById('empty');
-      if (items.length === 0) {
-        list.innerHTML = '';
-        empty.style.display = '';
-        return;
-      }
-      empty.style.display = 'none';
-      list.innerHTML = items.map(item => {
-        const isExtracting = !item.contentHtml && !item.extractionFailed;
-        const badge = isExtracting
-          ? `<span class="badge badge-extracting">提取中…</span>`
-          : item.extractionFailed
-            ? `<span class="badge badge-error">提取失败</span>`
-            : '';
-        const date = formatDate(item.pubDate);
-        const meta = [
-          item.author ? `<span class="item-author">${esc(item.author)}</span>` : '',
-          item.author && date ? `<span class="item-dot">·</span>` : '',
-          date ? `<span class="item-date">${date}</span>` : '',
-          badge ? `<span class="item-dot">·</span>${badge}` : '',
-        ].filter(Boolean).join('');
-        return `<div class="item-card">
-          <div class="item-title"><a href="${esc(item.link)}" target="_blank" rel="noopener">${esc(item.title || '(无标题)')}</a></div>
-          ${meta ? `<div class="item-meta">${meta}</div>` : ''}
-          ${item.summary ? `<div class="item-summary">${esc(item.summary)}</div>` : ''}
-        </div>`;
-      }).join('');
-    }
-
-    function updateProgress(items) {
-      const done = items.filter(i => i.contentHtml || i.extractionFailed).length;
-      const total = items.length;
-      const pct = total ? Math.round(done / total * 100) : 100;
-      const wrap = document.getElementById('progress-wrap');
-      const fill = document.getElementById('progress-fill');
-      if (total > 0 && done < total) {
-        wrap.style.display = '';
-        fill.style.width = pct + '%';
-      } else {
-        wrap.style.display = 'none';
-      }
-    }
-
-    function shouldPoll(items) {
-      return items.some(i => !i.contentHtml && !i.extractionFailed);
-    }
-
-    function showError(msg, hint = '') {
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('items-wrap').style.display = 'none';
-      document.getElementById('error').style.display = '';
-      document.getElementById('error-msg').textContent = msg;
-      document.getElementById('error-hint').textContent = hint;
-    }
-
-    async function load(manual = false) {
-      clearTimeout(pollTimer);
-      if (manual) {
-        pollCount = 0;
-        document.getElementById('loading').style.display = '';
-        document.getElementById('items-wrap').style.display = 'none';
-        document.getElementById('error').style.display = 'none';
-        const rb = document.getElementById('refresh-btn');
-        rb.querySelector('svg').style.animation = 'spin 0.7s linear infinite';
-      }
-      const apiUrl = '/api/rss?url=' + encodeURIComponent(feedUrl) + (headless ? '&headless=false' : '');
-      let data;
-      try {
-        const resp = await fetch(apiUrl);
-        data = await resp.json();
-        if (!resp.ok) {
-          if (data.code === 'AUTH_REQUIRED') {
-            showError('该站点需要登录', '请先在「插件管理」页面完成认证');
-          } else {
-            showError(data.error || `HTTP ${resp.status}`, data.code || '');
-          }
-          return;
-        }
-      } catch (e) {
-        showError('请求失败', e.message);
-        return;
-      }
-
-      // 更新 meta 区域
-      const metaEl = document.getElementById('feed-meta');
-      metaEl.style.display = '';
-      document.getElementById('meta-url').textContent = feedUrl;
-      const statusEl = document.getElementById('meta-status');
-      const extractingNow = shouldPoll(data.items);
-      statusEl.innerHTML = data.fromCache
-        ? `<span class="badge badge-cache">缓存</span>`
-        : `<span class="badge badge-live">实时抓取</span>`;
-      if (extractingNow) statusEl.innerHTML += ` <span class="badge badge-extracting">正在提取正文…</span>`;
-      const openBtn = document.getElementById('btn-open-rss');
-      openBtn.href = rssUrl();
-
-      // 隐藏 loading，显示条目
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('error').style.display = 'none';
-      const wrap = document.getElementById('items-wrap');
-      wrap.style.display = '';
-      document.getElementById('items-count').textContent = `${data.items.length} 条`;
-      if (manual) document.getElementById('refresh-btn').querySelector('svg').style.animation = '';
-      renderItems(data.items);
-      updateProgress(data.items);
-
-      // 后台轮询，等待 extract 完成
-      if (extractingNow && pollCount < MAX_POLL) {
-        pollCount++;
-        pollTimer = setTimeout(() => load(false), 3000);
-      } else {
-        pollCount = 0;
-      }
-    }
 
     function esc(s) {
-      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+
+    function renderItems(items) {
+      const list = document.getElementById('feed-list');
+      const state = document.getElementById('feed-state');
+      list.querySelectorAll('.item').forEach(el => el.remove());
+      if (items.length === 0) {
+        state.style.display = '';
+        state.textContent = '暂无条目';
+        return;
+      }
+      state.style.display = 'none';
+      items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'item';
+        const summaryHtml = item.summary ? `<p class="item-summary">${esc(item.summary)}</p>` : '';
+        const authorHtml = item.author ? `<span class="item-author">${esc(item.author)}</span><span class="item-dot"></span>` : '';
+        el.innerHTML = `
+          <a class="item-title" href="${esc(item.link)}" target="_blank" rel="noopener">${esc(item.title || '(无标题)')}</a>
+          ${summaryHtml}
+          <div class="item-meta">${authorHtml}<span>${relativeTime(item.pubDate)}</span></div>`;
+        list.appendChild(el);
+      });
+    }
+
+
+    async function load(manual = false) {
+      const btn = document.getElementById('refresh-btn');
+      const state = document.getElementById('feed-state');
+      if (manual) {
+        btn.classList.add('loading');
+        btn.textContent = '↺ 加载中…';
+        document.getElementById('feed-list').querySelectorAll('.item').forEach(el => el.remove());
+        state.style.display = '';
+        state.textContent = '加载中…';
+      }
+      const apiUrl = '/api/rss?url=' + encodeURIComponent(feedUrl) + (headless ? '&headless=false' : '');
+      try {
+        const resp = await fetch(apiUrl);
+        const data = await resp.json();
+        if (!resp.ok) {
+          state.style.display = '';
+          state.textContent = data.code === 'AUTH_REQUIRED'
+            ? '该站点需要登录，请先在「插件管理」页面完成认证'
+            : (data.error || `请求失败 HTTP ${resp.status}`);
+          return;
+        }
+        renderItems(data.items || []);
+      } catch (e) {
+        state.style.display = '';
+        state.textContent = '请求失败: ' + e.message;
+      } finally {
+        btn.classList.remove('loading');
+        btn.textContent = '↺ 刷新';
+      }
     }
   </script>
 </body>

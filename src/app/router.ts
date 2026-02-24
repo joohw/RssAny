@@ -351,7 +351,40 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.text(`生成 RSS 失败: ${msg}`, 500);
     }
   });
-  // 静态文件服务：SvelteKit 构建产物（webui/build/），需先执行 npm run webui:build
-  app.use("/*", serveStatic({ root: "./webui/build" }));
+  // 页面路由：从 statics/ 目录提供静态 HTML 页面
+  app.get("/", async (c) => {
+    const html = await readStaticHtml("home", "<h1>RssAny</h1>");
+    return c.html(html);
+  });
+  app.get("/sites", async (c) => {
+    const html = await readStaticHtml("sites", "<h1>Sites</h1>");
+    return c.html(html);
+  });
+  app.get("/plugins", async (c) => {
+    const html = await readStaticHtml("plugins", "<h1>Plugins</h1>");
+    return c.html(html);
+  });
+  app.get("/preview", async (c) => {
+    const html = await readStaticHtml("preview", "<h1>Preview</h1>");
+    return c.html(html);
+  });
+  app.get("/feed", async (c) => {
+    const html = await readStaticHtml("feed", "<h1>Feed</h1>");
+    return c.html(html);
+  });
+  app.get("/parse", async (c) => {
+    const html = await readStaticHtml("parse", "<h1>Parse</h1>");
+    return c.html(html);
+  });
+  app.get("/extractor", async (c) => {
+    const html = await readStaticHtml("extract", "<h1>Extractor</h1>");
+    return c.html(html);
+  });
+  app.get("/subscriptions", async (c) => {
+    const html = await readStaticHtml("subscription", "<h1>Subscriptions</h1>");
+    return c.html(html);
+  });
+  // 静态文件服务：statics/ 目录（直接访问 .html 文件等）
+  app.use("/*", serveStatic({ root: "./statics" }));
   return app;
 }

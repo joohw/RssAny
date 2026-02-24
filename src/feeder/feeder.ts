@@ -19,10 +19,9 @@ import { upsertItems, updateItemContent } from "../db/index.js";
 const FEEDS_SUBDIR = "feeds";
 
 
-/** feeds 缓存结构：支持按条目展示抓取进度 */
+/** feeds 缓存结构 */
 interface FeedCache {
   items: FeedItem[];
-  startedAt: number;
   listUrl: string;
   channel: RssChannel;
 }
@@ -101,19 +100,18 @@ function buildErrorRss(listUrl: string, message: string): string {
 }
 
 
-/** 同一 URL 的生成任务去重 */
+/** 同一 URL 的首次生成任务去重（仅在初始 fetch+parse 阶段有效） */
 const generatingKeys = new Map<string, Promise<{ xml: string; items: FeedItem[] }>>();
-/** 生成中的状态，供刷新时展示已抓取/待抓取 */
-const generatingState = new Map<string, FeedCache>();
 
 
-/** 执行生成流程：先抓取列表并立即返回，若有 includeContent 则后台抓取详情并更新缓存。fetch/parse/extract 仅写缓存（供分析），不读缓存，避免错误传播；仅 feed 级缓存用于复用 */
+/** 执行生成流程：抓取列表并写入初始缓存后立即返回；若有 includeContent 则以纯后台队列提取详情并异步覆盖缓存 */
 async function generateAndCache(listUrl: string, key: string, config: FeederConfig): Promise<{ xml: string; items: FeedItem[] }> {
   const { cacheDir = "cache", includeContent = true, headless } = config;
   const site = getSite(listUrl)!;
   const proxy = getProxy(listUrl);
   const listRes = await fetchHtml(listUrl, { cacheDir, useCache: false, authFlow: toAuthFlow(site), headless, proxy, browserContext: site.browserContext ?? undefined });
   if (listRes.status !== 200) {
+    generatingKeys.delete(key);
     const xml = buildErrorRss(listUrl, `抓取失败: HTTP ${listRes.status}`);
     return { xml, items: [] };
   }
@@ -131,13 +129,13 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     link: listUrl,
     description: `来自 ${listUrl} 的订阅`,
   };
-  const cache: FeedCache = { items, startedAt: Date.now(), listUrl, channel };
-  generatingState.set(key, cache);
+  const cache: FeedCache = { items, listUrl, channel };
   const initialXml = buildRssFromCache(cache);
   if (cacheDir) {
     await writeFeedsCache(cacheDir, key, initialXml);
     await writeItemsCache(cacheDir, key, items);
   }
+  generatingKeys.delete(key);
   upsertItems(items, listUrl).catch((err) => console.warn("[db] upsertItems 失败:", err instanceof Error ? err.message : err));
   if (includeContent && items.length > 0 && site.extractor != null) {
     const extractorConfig = { cacheDir, useCache: false, customExtractor: site.extractor };
@@ -151,18 +149,13 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
           console.warn(`[feeder] 提取失败 ${items[i].link}:`, err instanceof Error ? err.message : err);
           items[i] = { ...items[i], extractionFailed: true };
         }
-        generatingState.set(key, { ...cache, items: [...items] });
       }
       const finalXml = buildRssFromCache({ ...cache, items });
       if (cacheDir) {
         await writeFeedsCache(cacheDir, key, finalXml);
         await writeItemsCache(cacheDir, key, items);
       }
-      generatingState.delete(key);
-    })().catch((err) => console.warn("[feeder] 后台抓取详情失败:", err instanceof Error ? err.message : err)).finally(() => generatingKeys.delete(key));
-  } else {
-    generatingKeys.delete(key);
-    generatingState.delete(key);
+    })().catch((err) => console.warn("[feeder] 后台提取详情失败:", err instanceof Error ? err.message : err));
   }
   return { xml: initialXml, items };
 }
@@ -176,8 +169,6 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
   const strategy = getRefreshStrategy(listUrl);
   const key = cacheKey(listUrl, strategy);
   if (cacheDir) {
-    const inProgress = generatingState.get(key);
-    if (inProgress != null) return { xml: buildRssFromCache(inProgress), fromCache: false, items: inProgress.items };
     const [cachedXml, cachedItems] = await Promise.all([
       readFeedsCache(cacheDir, key),
       readItemsCache(cacheDir, key),
