@@ -24,14 +24,13 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 用户数据（不纳入版本管理，位于 .rssany/）
 ├── .rssany/
-│   ├── sites.json          站点代理与刷新间隔配置
-│   ├── subscriptions.json  订阅定义
+│   ├── subscriptions.json  订阅定义（含各信源的 proxy、refresh 配置）
 │   ├── plugins/            用户自定义插件（可覆盖同 id 的内置插件）
 │   └── data/
 │       └── rssany.db       SQLite 数据库
 ```
 
-> `.rssany/` 目录在首次启动时自动创建，并自动迁移旧版根目录下的 `sites.json`、`subscriptions.json`、`data/` 到新路径。
+> `.rssany/` 目录在首次启动时自动创建。
 
 ## 架构模块
 
@@ -40,7 +39,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 - **路由**：
   - `/rss/*`：生成 RSS XML
   - `/parse/*`、`/extractor/*`：开发调试工具（同时有独立 HTML 页面）
-  - `/feed`、`/subscriptions`、`/sites`、`/plugins`：管理页面
+  - `/feed`、`/subscriptions`、`/plugins`：管理页面
   - `/api/items`：数据库条目查询（含 FTS 全文搜索）
   - `/api/items/pending-push`、`/api/items/mark-pushed`：OpenWebUI 推送接口
   - `/auth/*`：认证管理
@@ -48,30 +47,24 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 ### feeder（RSS 生成核心）
 - **职责**：根据 URL 生成 RSS，协调 fetch → parse → extract 流程
-- **流程**：检查缓存 → 匹配站点 → 抓取列表 → 解析条目 → 构建 RSS → 后台补全详情
+- **流程**：检查缓存 → 匹配信源 → 抓取列表 → 解析条目 → 构建 RSS → 后台补全详情
 - **缓存**：feed 级缓存（读+写），fetch/parse/extract 级仅写（供分析）
 - **写库**：列表解析后立即 `upsertItems`，extract 完成后 `updateItemContent`
 
-### fetcher（页面拉取层）
-- **职责**：使用 Puppeteer 无头浏览器拉取页面 HTML
-- **特性**：支持认证态恢复（cookies/localStorage）、代理配置、HTML 净化
-- **认证**：通过 `ensureAuth` 管理登录流程，cookies 持久化到 `cache/domains/{domain}.json`
+### sources（信源抽象层）
+- **职责**：定义统一 `Source` 接口，汇聚 Web 插件、RssSource、genericWebSource，提供 `getSource` 查找入口
+- **Source 接口**：`id`、`pattern`、`refreshInterval`、`proxy`、`fetchItems`、`enrichItem`、`preCheck`
+- **优先级**：Web 插件（具体 URL 模式）→ RssSource（标准 Feed URL）→ genericWebSource（通用兜底）
+- **子模块**：
+  - `sources/web/`：网页信源，基于 Site 插件 + Puppeteer 抓取
+  - `sources/api/rss.ts`：标准 RSS/Atom/JSON Feed 解析器
+  - `sources/email/`：邮件信源（IMAP）
 
-### parser（列表解析层）
-- **职责**：从 HTML 列表页解析出条目列表（title、link、summary 等）
-- **模式**：自定义解析器（插件提供）或 LLM 解析（默认）
-- **缓存**：解析结果写入 `cache/parsed/`
-
-### extractor（正文提取层）
-- **职责**：从详情页 HTML 提取完整正文内容
-- **模式**：自定义提取器（优先）、Readability、LLM 提取
-- **输出**：标准字段（title、author、summary、contentHtml、pubDate）
-
-### sites（站点管理）
-- **职责**：聚合内置站点与外部插件，提供站点匹配与能力查询
-- **匹配**：按 `listUrlPattern` 计算具体度，返回最匹配的站点
-- **插件加载**：`plugins/`（内置）+ `.rssany/plugins/`（用户），同 id 时用户插件优先
-- **siteConfig**：从 `.rssany/sites.json` 加载代理与刷新间隔，正则 pattern 为 key
+### sources/web（网页信源）
+- **fetcher**：使用 Puppeteer 无头浏览器拉取页面 HTML，支持认证态恢复、代理配置、HTML 净化
+- **parser**：从 HTML 列表页解析出条目列表（title、link、summary 等），支持自定义解析器或 LLM 解析
+- **extractor**：从详情页 HTML 提取完整正文内容，支持自定义提取器、Readability、LLM 提取
+- **pluginLoader**：扫描并加载 `plugins/`（内置）+ `.rssany/plugins/`（用户）中的 Site 插件
 
 ### auth（认证抽象）
 - **职责**：定义 AuthFlow 类型与认证错误，与 fetcher 配合使用
@@ -88,6 +81,9 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 - **接口**：`upsertItems`、`updateItemContent`、`queryItems`、`getPendingPushItems`、`markPushed`
 - **FTS5**：`items_fts` 虚拟表支持对 title/summary/content 全文检索
 
+### utils（共享工具）
+- **`utils/refreshInterval.ts`**：`RefreshInterval` 类型定义 + `refreshIntervalToMs` 转换函数，全项目唯一权威来源
+
 ### llm（LLM 统一调用）
 - **职责**：封装 OpenAI API 调用，供 parser/extractor 的 LLM 模式使用
 - **配置**：从环境变量读取 OPENAI_API_KEY、OPENAI_BASE_URL、OPENAI_MODEL
@@ -96,9 +92,9 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 1. **RSS 生成 + 入库流程**：
    ```
-   URL → getSite() → preCheckAuth() → fetchHtml() → parseHtml()
+   URL → getSource() → preCheckAuth() → fetchItems()
      → upsertItems() → buildRssXml()
-     → [后台] extractItem() → updateItemContent() → 更新缓存
+     → [后台] enrichItem() → updateItemContent() → 更新缓存
    ```
 
 2. **认证流程**：
@@ -111,7 +107,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
    ```
    启动时扫描 plugins/*.rssany.{js,ts}（内置）
          + .rssany/plugins/*.rssany.{js,ts}（用户）
-   → 合并到 registeredSites（用户插件覆盖同 id 内置插件）
+   → 合并到 registeredSources（用户插件覆盖同 id 内置插件）
    → 开发模式监听两个目录文件变化自动重载
    ```
 
@@ -130,7 +126,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 - **智能降级**：自定义解析器 → LLM 解析 → 通用兜底
 - **增量存储**：SQLite `INSERT OR IGNORE` 天然去重，`pushed_at` 追踪推送状态
 - **缓存策略**：时间窗口 key（10min/30min/1h/6h/12h/1day/3day/7day），过期即重抓
-- **代理支持**：通过 `.rssany/sites.json` 正则匹配配置站点级代理
+- **代理支持**：在插件 `Site.proxy` 或 `subscriptions.json` 的 `sources[].proxy` 字段中配置，无需全局 sites.json
 - **认证管理**：自动检测登录状态，支持有头浏览器手动登录
 
 
@@ -146,7 +142,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 ### Site 接口
 
-插件必须实现 `Site` 接口（定义在 `src/sites/types.ts`），包含以下字段：
+插件必须实现 `Site` 接口（定义在 `src/sources/web/site.ts`），包含以下字段：
 
 #### 必填字段
 
@@ -156,6 +152,8 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 #### 可选字段
 
 - **`detailUrlPattern`** (string | RegExp | null)：详情页 URL 模式
+- **`refreshInterval`** (RefreshInterval | null)：条目有效时间窗口，作用于缓存键、DB 查询和调度间隔；不填默认 `1day`
+- **`proxy`** (string | null)：代理地址，如 `http://127.0.0.1:7890`、`socks5://127.0.0.1:1080`；不填则使用 env `HTTP_PROXY`
 - **`parser`** (CustomParserFn | null)：自定义列表页解析函数
 - **`extractor`** (CustomExtractorFn | null)：自定义正文提取函数
 - **`checkAuth`** (CheckAuthFn | null)：检查是否已登录
@@ -184,27 +182,41 @@ export default {
   id: "example",
   listUrlPattern: "https://example.com/user/{userId}",
   detailUrlPattern: "https://example.com/post/{postId}",
+  refreshInterval: "1h",
+  proxy: "http://127.0.0.1:7890",
   parser,
   loginUrl: "https://example.com/login",
   domain: "example.com",
 };
 ```
 
-### 站点配置（`.rssany/sites.json`）
+### 订阅配置中的代理与刷新间隔（`.rssany/subscriptions.json`）
 
-使用正则 pattern 为 key，越具体（字符串越长）越优先：
+也可在订阅配置中对单个信源设置代理或刷新间隔，优先级高于插件声明：
 
 ```json
 {
-  "xiaohongshu\\.com": {
-    "proxy": "http://127.0.0.1:7890",
-    "refresh": "1h"
-  },
-  "x\\.com": {
-    "proxy": "socks5://127.0.0.1:1080",
-    "refresh": "30min"
+  "tech": {
+    "title": "科技资讯",
+    "sources": [
+      {
+        "ref": "https://example.com/user/123",
+        "label": "示例站点",
+        "refresh": "1h",
+        "proxy": "http://127.0.0.1:7890"
+      }
+    ]
   }
 }
 ```
 
 支持的刷新间隔：`10min` / `30min` / `1h` / `6h` / `12h` / `1day`（默认）/ `3day` / `7day`
+
+### 代理优先级链
+
+```
+SubscriptionSource.proxy（subscriptions.json 单源覆盖）
+  → FeederConfig.proxy（调用方传入）
+  → Source.proxy / Site.proxy（插件声明）
+  → process.env.HTTP_PROXY（环境变量兜底）
+```
