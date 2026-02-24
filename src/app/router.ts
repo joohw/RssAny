@@ -18,7 +18,6 @@ import { fetchHtml, ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sour
 import { getWebSite, getSiteForDetail, getBestSite, getPluginSites, toAuthFlow } from "../sources/web/index.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 import { queryItems, queryItemsBySource, getPendingPushItems, markPushed } from "../db/index.js";
-import { refreshIntervalToMs } from "../utils/refreshInterval.js";
 import { enrichQueue } from "../enrich/index.js";
 import { getAdminToken } from "../config/adminToken.js";
 
@@ -115,6 +114,8 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     return c.json(result);
   });
   // API：从数据库读取所有订阅的条目，纯 DB 查询，不触发任何实时抓取
+  // 注意：不按 refresh 间隔做时间窗口过滤——refresh 仅控制调度频率，不应影响展示范围；
+  // 条目数量由每个订阅的 maxItemsPerSource（默认 50）控制，结果按发布时间降序排列。
   app.get("/api/feed", async (c) => {
     const subs = await getAllSubscriptionConfigs();
     const results = await Promise.all(
@@ -122,8 +123,8 @@ export function createApp(getRssFn: typeof getRss = getRss) {
         const maxPerSource = sub.maxItemsPerSource ?? 50;
         const itemsPerSource = await Promise.all(
           sub.sources.map((src) => {
-            const since = src.refresh ? new Date(Date.now() - refreshIntervalToMs(src.refresh)) : undefined;
-            return queryItemsBySource(resolveRef(src), maxPerSource, since);
+            // 只按条数限制，不加时间窗口：避免 refresh 较短时历史条目被错误过滤
+            return queryItemsBySource(resolveRef(src), maxPerSource);
           })
         );
         const items = itemsPerSource.flat().sort((a, b) => {
