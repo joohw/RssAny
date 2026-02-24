@@ -127,7 +127,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     await writeItemsCache(cacheDir, key, items);
   }
   generatingKeys.delete(key);
-  if (!config.skipDb) {
+  if (config.writeDb) {
     upsertItems(items, listUrl).catch((err) => console.warn("[db] upsertItems 失败:", err instanceof Error ? err.message : err));
   }
   if (!includeContent || items.length === 0 || source.enrichItem == null) {
@@ -141,7 +141,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
       sourceUrl: listUrl,
       onItemDone: async (enrichedItem, index) => {
         items[index] = enrichedItem;
-        if (!config.skipDb) {
+        if (config.writeDb) {
           updateItemContent(enrichedItem).catch((err) => console.warn("[db] updateItemContent 失败:", err instanceof Error ? err.message : err));
         }
         if (cacheDir) {

@@ -9,6 +9,7 @@ import { createApp } from "./router.js";
 import { initSources as initSites } from "../sources/index.js";
 import { initScheduler } from "../scheduler/index.js";
 import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../config/paths.js";
+import { getAdminToken } from "../config/adminToken.js";
 
 
 const PORT = Number(process.env.PORT) || 3751;
@@ -83,6 +84,8 @@ async function main() {
   console.log(`RssAny 本机: http://127.0.0.1:${PORT}/`);
   const lanIp = Object.values(networkInterfaces()).flat().find((iface) => iface?.family === "IPv4" && !iface.internal)?.address;
   if (lanIp) console.log(`RssAny 局域网: http://${lanIp}:${PORT}/`);
+  const adminToken = await getAdminToken();
+  console.log(`[Admin] Token: ${adminToken}  →  http://127.0.0.1:${PORT}/admin`);
   if (IS_DEV) {
     watchPlugins();
   }

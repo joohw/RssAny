@@ -9,7 +9,8 @@
   },
   "scripts": {
     "build": "vite build",
-    "dev": "NODE_ENV=development tsx --watch src/app/index.ts",
+    "dev": "concurrently -k -n WEB,API -c cyan,green \"npm run webui:dev\" \"npm run dev:api\"",
+    "dev:api": "NODE_ENV=development tsx --watch src/app/index.ts",
     "dev:build": "vite build --watch",
     "start": "node dist/index.js",
     "serve:route": "node scripts/serve-route.mjs",
@@ -23,6 +24,7 @@
     "webui:install": "cd webui && npm install",
     "webui:dev": "cd webui && npm run dev",
     "webui:build": "cd webui && npm run build",
+    "webui:watch": "cd webui && pnpm run build:watch",
     "build:all": "npm run build && npm run webui:build"
   },
   "keywords": [
@@ -45,6 +47,7 @@
     "@types/mailparser": "^3.4.6",
     "@types/node": "^25.2.0",
     "eslint": "^9.15.0",
+    "concurrently": "^9.2.1",
     "globals": "^15.12.0",
     "tsx": "^4.19.0",
     "typescript": "~5.6.0",

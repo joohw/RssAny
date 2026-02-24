@@ -27,7 +27,11 @@ RssAny 是一个通用的内容聚合与信息流平台。它不仅能将任意�
 ### 安装
 
 ```bash
+# 安装后端依赖
 pnpm install
+
+# 安装前端依赖
+cd webui && pnpm install && cd ..
 ```
 
 ### 配置
@@ -48,15 +52,54 @@ export OPENAI_MODEL=gpt-4o-mini
 
 ### 启动
 
+**开发模式**（推荐，前端 HMR + 后端热重载）：
+
 ```bash
-# 开发模式（热重载）
+# 终端 1：后端
 pnpm dev
 
-# 生产模式
-pnpm build && pnpm start
+# 终端 2：前端 dev server（访问 http://localhost:5173）
+cd webui && pnpm dev
 ```
 
-服务默认监听 `http://localhost:3751`。
+**生产模式**（前端静态文件由后端直接服务）：
+
+```bash
+# 构建前端
+cd webui && pnpm build && cd ..
+
+# 启动后端（访问 http://localhost:3751）
+pnpm start
+```
+
+服务默认监听 `http://localhost:3751`。启动时会输出 Admin Token，用于访问管理功能：
+
+```
+RssAny 本机: http://127.0.0.1:3751/
+[Admin] Token: a3f8c2...  →  http://127.0.0.1:3751/admin
+```
+
+## WebUI
+
+访问 `http://localhost:3751`（生产）或 `http://localhost:5173`（开发）打开管理界面。
+
+| 页面 | 说明 |
+|------|------|
+| **信息流** | 多源聚合时间线，实时推送新内容 |
+| **Web2RSS** | 输入任意网页 URL，生成 RSS 订阅源 |
+| **订阅管理** | 编辑 `subscriptions.json`，管理聚合订阅 |
+| **Admin** | 需要 Token 验证，包含开发工具与插件管理 |
+
+### Admin 页面
+
+Admin 需要服务器启动时输出的 Token 才能进入（Token 保存在 `.rssany/admin-token.txt`，重启不变）。包含以下功能：
+
+- **RSS** — 测试 Web2RSS 转换（支持 Headful 模式）
+- **Parse** — 解析列表页，返回条目 JSON（支持 Headful）
+- **Extract** — 提取详情页正文，返回 JSON（支持 Headful）
+- **插件** — 查看已加载插件，检查登录状态，打开有头浏览器完成授权
+
+**Headful 模式**：勾选后使用有头浏览器（可见窗口）加载页面，便于调试与手动登录。登录完成后 cookies 自动保存，后续请求无需重复登录。
 
 ## 使用
 
@@ -87,8 +130,6 @@ http://localhost:3751/rss/https://sspai.com/writers
 }
 ```
 
-访问 `http://localhost:3751/` 可在 WebUI 中浏览聚合后的信息流，新内容到达时实时通知。
-
 ### 邮件收件箱
 
 支持通过 IMAP 将邮件 Newsletter 纳入信息流，格式：
@@ -96,18 +137,6 @@ http://localhost:3751/rss/https://sspai.com/writers
 ```
 imaps://用户名%40域名:授权码@imap服务器:993/INBOX?limit=50
 ```
-
-### 订阅管理
-
-访问 `http://localhost:3751/subscriptions` 管理订阅列表，每个订阅可聚合多个异构信源。
-
-### WebUI
-
-访问 `http://localhost:3751` 打开管理界面，支持：
-- 信息流浏览（多源聚合时间线）
-- 订阅列表管理
-- 插件列表查看
-- 解析器 / 提取器调试工具
 
 ## 插件开发
 
@@ -129,15 +158,13 @@ export default {
   id: "example",
   listUrlPattern: "https://example.com/user/{userId}",
   detailUrlPattern: "https://example.com/post/{postId}",
-  refreshInterval: "1h",
-  proxy: "http://127.0.0.1:7890",
   parser,
   loginUrl: "https://example.com/login",
   domain: "example.com",
 };
 ```
 
-详细插件规范见 [AGENTS.MD](./AGENTS.MD)。
+用户插件（`.rssany/plugins/`）会覆盖同 `id` 的内置插件（`plugins/`），无需修改项目代码。详细插件规范见 [AGENTS.MD](./AGENTS.MD)。
 
 ## 目录结构
 
@@ -154,10 +181,10 @@ export default {
 │   └── subscription/ 订阅配置加载
 ├── plugins/          内置站点插件
 ├── webui/            前端管理界面（SvelteKit）
-├── statics/          静态 HTML 页面
 ├── tests/            端到端测试
 └── .rssany/          用户数据目录（自动创建，gitignore）
     ├── subscriptions.json
+    ├── admin-token.txt
     ├── plugins/
     └── data/rssany.db
 ```

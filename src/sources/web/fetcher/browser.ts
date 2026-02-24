@@ -254,7 +254,7 @@ export async function ensureAuth(
 
 // 使用浏览器单例打开页面并返回结构化 HTML 结果；每次请求开新 Tab，用完关 Tab
 export async function fetchHtml(url: string, config: RequestConfig = {}): Promise<StructuredHtmlResult> {
-  const { timeoutMs, headers, cookies, cacheDir, cacheKeyStrategy, cacheMaxAgeMs, useCache, checkAuth, authFlow, purify, headless } =
+  const { timeoutMs, headers, cookies, cacheDir, cacheKeyStrategy, cacheMaxAgeMs, useCache, checkAuth, authFlow, purify, headless, waitAfterLoadMs } =
     config;
   if (useCache !== false && cacheDir != null && cacheDir !== "") {
     const cached = await readCached(cacheDir, url, {
@@ -298,7 +298,10 @@ export async function fetchHtml(url: string, config: RequestConfig = {}): Promis
     // 等待所有 HTTP 重定向及资源加载完毕，避免 JS 跳转导致 detached Frame
     const response = await page.goto(url, { waitUntil: "load", timeout: navigationTimeout });
     // 额外等待确保 JS 动态内容加载（React/Vue 等框架 hydration）
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const extraWaitMs = Math.max(0, waitAfterLoadMs ?? 2000);
+    if (extraWaitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, extraWaitMs));
+    }
     if (checkAuth != null || authFlow != null) {
       const authCheck = checkAuth ?? authFlow?.checkAuth;
       if (authCheck != null) {

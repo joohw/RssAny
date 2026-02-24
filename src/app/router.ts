@@ -7,7 +7,10 @@ import { streamSSE } from "hono/streaming";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getRss } from "../feeder/index.js";
 import { onFeedUpdated } from "../events/index.js";
-import { getSubscription, listSubscriptions, getAllSubscriptionConfigs } from "../subscription/index.js";
+import { getSubscription, getAllSubscriptionConfigs, createOrUpdateSubscription, deleteSubscription } from "../subscription/index.js";
+import type { SubscriptionConfig } from "../subscription/index.js";
+import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promises";
+import { SUBSCRIPTIONS_CONFIG_PATH } from "../config/paths.js";
 import { resolveRef } from "../subscription/types.js";
 import { extractFromLink } from "../sources/web/extractor/index.js";
 import { parseHtml } from "../sources/web/parser/index.js";
@@ -17,10 +20,13 @@ import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 import { queryItems, queryItemsBySource, getPendingPushItems, markPushed } from "../db/index.js";
 import { refreshIntervalToMs } from "../utils/refreshInterval.js";
 import { enrichQueue } from "../enrich/index.js";
+import { getAdminToken } from "../config/adminToken.js";
 
 
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
 const STATICS_DIR = join(process.cwd(), "statics");
+/** SvelteKit 构建产物目录（生产）；开发时由 Vite dev server 直接提供页面 */
+const WEBUI_BUILD_DIR = join(process.cwd(), "webui/build");
 
 
 /** 从路径提取 URL（与 /rss/* 一致） */
@@ -32,12 +38,23 @@ function parseUrlFromPath(path: string, prefix: string): string | null {
 }
 
 
-/** 读取静态 HTML，失败则返回默认文本 */
+/** 读取静态 HTML（statics/ 目录，用于 401/404 错误页） */
 async function readStaticHtml(name: string, fallback: string): Promise<string> {
   try {
     return await readFile(join(STATICS_DIR, `${name}.html`), "utf-8");
   } catch {
     return fallback;
+  }
+}
+
+
+/** 读取 SvelteKit SPA fallback HTML */
+async function readSpaHtml(): Promise<string> {
+  try {
+    return await readFile(join(WEBUI_BUILD_DIR, "200.html"), "utf-8");
+  } catch {
+    // 开发时 webui/build 可能不存在，返回简单占位
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>RssAny</title></head><body><p>请先运行 <code>npm run webui:build</code> 构建前端，或使用 <code>npm run webui:dev</code> 启动前端开发服务器。</p></body></html>';
   }
 }
 
@@ -63,11 +80,15 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const headlessParam = c.req.query("headless");
     const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
     try {
-      const result = await getRssFn(url, { cacheDir: CACHE_DIR, headless, skipDb: true });
+      const result = await getRssFn(url, { cacheDir: CACHE_DIR, headless });
       return c.json({
         fromCache: result.fromCache,
         items: result.items.map((item) => ({
-          ...item,
+          guid: item.guid,
+          title: item.title,
+          link: item.link,
+          summary: item.summary,
+          author: item.author,
           pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : item.pubDate,
         })),
       });
@@ -160,6 +181,74 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     }));
     return c.json(plugins);
   });
+  // ── Admin 鉴权 ───────────────────────────────────────────────────────────────
+  // 验证 admin token，前端用 Authorization: Bearer <token> 调用
+  app.get("/api/admin/verify", async (c) => {
+    const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
+    const adminToken = await getAdminToken();
+    if (token && token === adminToken) return c.json({ ok: true });
+    return c.json({ ok: false }, 401);
+  });
+  // ── 订阅配置原始 JSON 读写 ────────────────────────────────────────────────────
+  // 读取 subscriptions.json 原始内容
+  app.get("/api/subscriptions/raw", async (c) => {
+    try {
+      const raw = await readFileFs(SUBSCRIPTIONS_CONFIG_PATH, "utf-8");
+      return c.text(raw, 200, { "Content-Type": "application/json; charset=utf-8" });
+    } catch {
+      return c.text("{}", 200, { "Content-Type": "application/json; charset=utf-8" });
+    }
+  });
+  // 保存 subscriptions.json 原始内容（需是合法 JSON）
+  app.put("/api/subscriptions/raw", async (c) => {
+    try {
+      const raw = await c.req.text();
+      JSON.parse(raw); // 格式校验，失败则抛出
+      await writeFileFs(SUBSCRIPTIONS_CONFIG_PATH, raw, "utf-8");
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  });
+  // ── 订阅管理 CRUD API ────────────────────────────────────────────────────────
+  // 列出所有订阅完整配置（管理页面用）
+  app.get("/api/subscription", async (c) => {
+    const subs = await getAllSubscriptionConfigs();
+    return c.json(subs);
+  });
+  // 创建订阅
+  app.post("/api/subscription", async (c) => {
+    try {
+      const body = await c.req.json<{ id?: string } & SubscriptionConfig>();
+      const { id, ...config } = body;
+      if (!id) return c.json({ ok: false, message: "id 不能为空" }, 400);
+      if (!config.sources?.length) return c.json({ ok: false, message: "sources 不能为空" }, 400);
+      await createOrUpdateSubscription(id, config);
+      return c.json({ ok: true, id });
+    } catch (err) {
+      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  });
+  // 更新订阅
+  app.put("/api/subscription/:id", async (c) => {
+    const id = c.req.param("id");
+    try {
+      const config = await c.req.json<SubscriptionConfig>();
+      if (!config.sources?.length) return c.json({ ok: false, message: "sources 不能为空" }, 400);
+      await createOrUpdateSubscription(id, config);
+      return c.json({ ok: true, id });
+    } catch (err) {
+      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  });
+  // 删除订阅
+  app.delete("/api/subscription/:id", async (c) => {
+    const id = c.req.param("id");
+    const deleted = await deleteSubscription(id);
+    if (!deleted) return c.json({ ok: false, message: `订阅 "${id}" 不存在` }, 404);
+    return c.json({ ok: true, id });
+  });
+  // ── 认证 ──────────────────────────────────────────────────────────────────────
   // 检查登录状态
   app.get("/auth/check", async (c) => {
     const siteIdParam = c.req.query("siteId");
@@ -220,10 +309,12 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     ensureAuth(authFlow, CACHE_DIR).then(() => console.log("[Auth] ensureAuth 完成")).catch((e) => console.warn("[Auth] ensureAuth 失败", e));
     return c.json({ ok: true, message: "已打开登录窗口，请在弹出的浏览器中完成登录，完成后刷新订阅页面即可。" });
   });
+  // ── 错误页渲染辅助（仍使用 statics/ 中的 401/404.html）────────────────────────
   async function render401(listUrl: string): Promise<string> {
     const raw = await readStaticHtml("401", "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>401</title></head><body><h1>401 需要登录</h1></body></html>");
     return raw.replace(/\{\{listUrl\}\}/g, escapeHtml(listUrl));
   }
+  // ── 后端数据 API（/parse/* /extractor/* /rss/* /subscription/*）────────────
   app.get("/parse/*", async (c) => {
     const url = parseUrlFromPath(c.req.path, "/parse");
     if (!url) return c.text("无效 URL，格式: /parse/https://... 或 /parse/example.com/...", 400);
@@ -240,6 +331,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
         timeoutMs: 60_000,
         headless,
         proxy,
+        waitAfterLoadMs: site?.waitAfterLoadMs ?? undefined,
       });
       if (res.status !== 200) {
         return c.text(`拉取失败: ${res.status} ${res.statusText}`, 500);
@@ -287,11 +379,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.text(`提取失败: ${msg}`, 500);
     }
   });
-  // 列出所有订阅
-  app.get("/subscription", async (c) => {
-    const list = await listSubscriptions();
-    return c.json(list);
-  });
   // 获取指定订阅的聚合条目（JSON，服务于数据库/程序消费）
   app.get("/subscription/:id", async (c) => {
     const id = c.req.param("id");
@@ -313,7 +400,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     try {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
-      const { xml } = await getRssFn(url, { cacheDir: CACHE_DIR, headless });
+      const { xml } = await getRssFn(url, { cacheDir: CACHE_DIR, headless, writeDb: true });
       return c.body(xml, 200, {
         "Content-Type": "application/rss+xml; charset=utf-8",
       });
@@ -330,36 +417,13 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.text(`生成 RSS 失败: ${msg}`, 500);
     }
   });
-  // 页面路由：从 statics/ 目录提供静态 HTML 页面
-  app.get("/", async (c) => {
-    const html = await readStaticHtml("feed", "<h1>Feed</h1>");
+  // ── 静态文件服务：webui/build/（SvelteKit 构建产物）───────────────────────────
+  // 精确的静态资源文件（带扩展名）直接由 serveStatic 处理
+  app.use("/*", serveStatic({ root: "./webui/build" }));
+  // SPA fallback：所有未匹配路由返回 webui/build/200.html（由 SvelteKit 客户端路由处理）
+  app.get("/*", async (c) => {
+    const html = await readSpaHtml();
     return c.html(html);
   });
-  app.get("/web2rss", async (c) => {
-    const html = await readStaticHtml("home", "<h1>Web2RSS</h1>");
-    return c.html(html);
-  });
-  app.get("/plugins", async (c) => {
-    const html = await readStaticHtml("plugins", "<h1>Plugins</h1>");
-    return c.html(html);
-  });
-  app.get("/preview", async (c) => {
-    const html = await readStaticHtml("preview", "<h1>Preview</h1>");
-    return c.html(html);
-  });
-  app.get("/feed", async (c) => {
-    const html = await readStaticHtml("feed", "<h1>Feed</h1>");
-    return c.html(html);
-  });
-  app.get("/parse", async (c) => {
-    const html = await readStaticHtml("parse", "<h1>Parse</h1>");
-    return c.html(html);
-  });
-  app.get("/extractor", async (c) => {
-    const html = await readStaticHtml("extract", "<h1>Extractor</h1>");
-    return c.html(html);
-  });
-  // 静态文件服务：statics/ 目录（直接访问 .html 文件等）
-  app.use("/*", serveStatic({ root: "./statics" }));
   return app;
 }

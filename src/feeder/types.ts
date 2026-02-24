@@ -15,8 +15,8 @@ export interface FeederConfig {
   refreshInterval?: RefreshInterval;
   /** 调用方传入的代理覆盖：优先级最高，覆盖 source 声明 */
   proxy?: string;
-  /** 为 true 时跳过数据库写入（upsertItems / updateItemContent），用于调试/预览流程 */
-  skipDb?: boolean;
+  /** 为 true 时写入数据库（upsertItems / updateItemContent），默认不写入 */
+  writeDb?: boolean;
 }
 
 

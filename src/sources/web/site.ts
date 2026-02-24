@@ -48,6 +48,8 @@ export interface Site {
   pollIntervalMs?: number | null;
   /** 浏览器上下文配置函数：在创建浏览器上下文时调用，可用于设置 cookies、localStorage 等；(context) => Promise<void> */
   browserContext?: ((context: BrowserContext) => Promise<void>) | null;
+  /** 页面 load 后额外等待时间（毫秒），用于等待站点前端异步渲染完成；默认 2000 */
+  waitAfterLoadMs?: number | null;
 }
 
 

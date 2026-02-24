@@ -35,6 +35,7 @@ export function createWebSource(site: Site): Source {
         headless: ctx.headless,
         proxy,
         browserContext: site.browserContext ?? undefined,
+        waitAfterLoadMs: site.waitAfterLoadMs ?? undefined,
       });
       if (listRes.status !== 200) {
         throw new Error(`抓取失败: HTTP ${listRes.status} ${listRes.statusText}`);

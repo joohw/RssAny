@@ -40,6 +40,8 @@ export interface RequestConfig {
   chromeExecutablePath?: string;
   /** 浏览器上下文配置函数：在创建页面后调用，可用于设置 cookies、localStorage 等；(context) => Promise<void> */
   browserContext?: ((context: BrowserContext) => Promise<void>) | null;
+  /** 页面 load 后额外等待毫秒（用于 SPA 首屏/异步数据渲染），默认 2000 */
+  waitAfterLoadMs?: number;
 }
 
 

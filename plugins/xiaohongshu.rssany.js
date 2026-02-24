@@ -1,15 +1,12 @@
 // 小红书站点插件：用户主页列表解析、笔记详情提取、认证流程
 
-import { parse, HTMLElement as NHTMLElement } from "node-html-parser";
-import type { Page } from "puppeteer-core";
-import type { Site } from "../src/sites/types.js";
-import type { ParsedEntry } from "../src/parser/types.js";
+import { parse } from "node-html-parser";
 
 
 const XHS_ORIGIN = "https://www.xiaohongshu.com";
 
 
-function getOrigin(url: string): string {
+function getOrigin(url) {
   try {
     const u = new URL(url);
     return u.origin;
@@ -19,7 +16,7 @@ function getOrigin(url: string): string {
 }
 
 
-function buildExploreLinkWithXsec(profileHref: string, origin: string): string | null {
+function buildExploreLinkWithXsec(profileHref, origin) {
   try {
     const fullUrl = new URL(profileHref.replace(/&amp;/g, "&"), origin);
     const pathSegs = fullUrl.pathname.split("/").filter(Boolean);
@@ -38,17 +35,17 @@ function buildExploreLinkWithXsec(profileHref: string, origin: string): string |
 }
 
 
-function parser(html: string, url: string) {
+function parser(html, url) {
   const root = parse(html);
   const origin = getOrigin(url);
   const feed = root.querySelector("#userPostedFeeds");
   if (!feed) return [];
   const sections = feed.querySelectorAll("section[data-v-79abd645][data-index]");
-  const entries: ParsedEntry[] = [];
+  const entries = [];
   for (const section of sections) {
     const profileWithToken = section.querySelector('a[href*="xsec_token="]');
     const profileHref = profileWithToken?.getAttribute("href")?.trim();
-    let link: string | undefined;
+    let link;
     if (profileHref && profileHref.includes("/user/profile/")) {
       const withXsec = buildExploreLinkWithXsec(profileHref, origin);
       if (withXsec) link = withXsec;
@@ -69,20 +66,20 @@ function parser(html: string, url: string) {
 }
 
 
-function descToMarkdown(descEl: ReturnType<typeof parse> | null): string {
+function descToMarkdown(descEl) {
   if (!descEl) return "";
   const noteText = descEl.querySelector(".note-text");
   if (!noteText) {
     const text = (descEl.textContent ?? "").trim();
     return text;
   }
-  const parts: string[] = [];
+  const parts = [];
   for (const node of noteText.childNodes) {
     if (node.nodeType === 3) {
       const text = (node.textContent ?? "").trim();
       if (text) parts.push(text);
     } else if (node.nodeType === 1) {
-      const el = node as NHTMLElement;
+      const el = node;
       const tagName = el.tagName?.toLowerCase();
       if (tagName === "img") {
         const alt = el.getAttribute("alt") || "";
@@ -107,7 +104,7 @@ function descToMarkdown(descEl: ReturnType<typeof parse> | null): string {
 }
 
 
-function extractUrl(val: string | null): string | null {
+function extractUrl(val) {
   if (!val) return null;
   const decoded = val.replace(/&quot;/g, '"').replace(/&amp;/g, "&");
   const m = decoded.match(/url\s*\(\s*["']?([^"')]+)["']?\s*\)/);
@@ -120,10 +117,10 @@ function extractUrl(val: string | null): string | null {
 }
 
 
-function collectNoteImages(root: ReturnType<typeof parse>): string[] {
-  const urls: string[] = [];
-  const seen = new Set<string>();
-  const add = (url: string | null) => {
+function collectNoteImages(root) {
+  const urls = [];
+  const seen = new Set();
+  const add = (url) => {
     const u = (url || "").trim();
     if (u && !seen.has(u) && (u.startsWith("http") || u.startsWith("//"))) {
       seen.add(u);
@@ -153,7 +150,7 @@ function collectNoteImages(root: ReturnType<typeof parse>): string[] {
 }
 
 
-function parseNoteDate(dateEl: ReturnType<typeof parse> | null): string | undefined {
+function parseNoteDate(dateEl) {
   const text = (dateEl?.textContent ?? "").trim();
   if (!text) return undefined;
   const now = new Date();
@@ -202,9 +199,9 @@ function parseNoteDate(dateEl: ReturnType<typeof parse> | null): string | undefi
 }
 
 
-function extractor(html: string, _url: string) {
+function extractor(html, _url) {
   const root = parse(html);
-  let authorEl: ReturnType<typeof parse> | null = null;
+  let authorEl = null;
   const authorSelectors = [
     ".author .info a.name .username",
     ".author .author-wrapper .info a.name .username",
@@ -264,7 +261,7 @@ function extractor(html: string, _url: string) {
   if (!authorEl) {
     const allUsernames = root.querySelectorAll(".username");
     for (const el of allUsernames) {
-      let parent: NHTMLElement | null = el.parentNode as NHTMLElement | null;
+      let parent = el.parentNode ?? null;
       for (let i = 0; i < 5 && parent; i++) {
         const className = parent.getAttribute?.("class") || "";
         if (typeof className === "string" && (className.includes("name") || className.includes("info") || className.includes("author"))) {
@@ -275,7 +272,7 @@ function extractor(html: string, _url: string) {
           authorEl = el;
           break;
         }
-        parent = parent.parentNode as NHTMLElement | null;
+        parent = parent.parentNode ?? null;
       }
       if (authorEl) break;
     }
@@ -290,7 +287,7 @@ function extractor(html: string, _url: string) {
   const descText = descToMarkdown(descEl);
   const imgUrls = collectNoteImages(root);
   const imgMd = imgUrls.length > 0 ? imgUrls.map((url) => `\n\n![](${url})`).join("") : "";
-  let content: string | undefined = (descText + imgMd).trim();
+  let content = (descText + imgMd).trim();
   if (!content && title) {
     content = title;
   }
@@ -346,7 +343,7 @@ function extractor(html: string, _url: string) {
 }
 
 
-async function checkAuth(page: Page, _url: string): Promise<boolean> {
+async function checkAuth(page, _url) {
   try {
     const loginButton = await page.$(".reds-button-new.login-btn.large.primary");
     return loginButton == null;
@@ -356,10 +353,10 @@ async function checkAuth(page: Page, _url: string): Promise<boolean> {
 }
 
 
-const site: Site = {
+const site = {
   id: "xiaohongshu",
-  listUrlPattern: /^https?:\/\/(www\.)?xiaohongshu\.com\/user\/profile\/[^/?]+(\?.*)?$/,
-  detailUrlPattern: /^https?:\/\/(www\.)?xiaohongshu\.com\/explore\/[^/?]+(\?.*)?$/,
+  listUrlPattern: "https://xiaohongshu.com/user/profile/{userId}",
+  detailUrlPattern: "https://xiaohongshu.com/explore/{noteId}",
   parser,
   extractor,
   checkAuth,

@@ -9,6 +9,18 @@ import type { Source } from "./types.js";
 /** 所有已注册的信源（优先级从高到低：Web 插件 → RssSource → genericWebSource） */
 export const registeredSources: Source[] = [];
 
+/** 将字符串 URL 模式转为正则：{placeholder} 匹配单个路径段，末尾允许 query */
+function sourcePatternToRegex(pattern: string | RegExp): RegExp {
+  if (pattern instanceof RegExp) return pattern;
+  const pathOnly = pattern.split("?")[0];
+  const pl = "<<<__PL__>>>";
+  const escaped = pathOnly
+    .replace(/\{[^}]*\}/g, pl)
+    .replace(/[.*+?^${}()|[\]\\]/g, (c) => "\\" + c)
+    .replace(new RegExp(pl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "[^/]+");
+  return new RegExp("^" + escaped + "(\\?.*)?$");
+}
+
 
 /** 根据 sourceId 查找匹配度最高的 Source */
 export function getSource(sourceId: string): Source {
@@ -17,9 +29,12 @@ export function getSource(sourceId: string): Source {
   // 次优先：Web 插件（具体 URL 模式）
   const webPlugins = registeredSources.filter((s) => s.id !== "__rss__" && s.id !== "generic");
   for (const source of webPlugins) {
-    const pattern = source.pattern;
-    const regex = typeof pattern === "string" ? new RegExp(pattern) : pattern;
-    if (regex.test(sourceId)) return source;
+    try {
+      const regex = sourcePatternToRegex(source.pattern);
+      if (regex.test(sourceId)) return source;
+    } catch {
+      // ignore invalid plugin pattern and continue matching others
+    }
   }
   // 次优先：标准 Feed URL（启发式判断）
   if (looksLikeFeed(sourceId)) {
