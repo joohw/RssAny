@@ -4,7 +4,7 @@ import type { RefreshInterval } from "../utils/refreshInterval.js";
 
 
 /** 信源类型枚举 */
-export type SourceType = "web" | "rss" | "email" | "api";
+export type SourceType = "web" | "rss" | "email";
 
 
 /**
@@ -17,10 +17,9 @@ export type SourceType = "web" | "rss" | "email" | "api";
  *              →  imap://user:password@imap.qq.com:143/INBOX
  *              →  imaps://me%40gmail.com:app-password@imap.gmail.com/INBOX
  *              （用户名含 @ 时用 %40 编码；Gmail 需使用「应用专用密码」）
- *   api        →  https://api.github.com/notifications
  */
 export interface SubscriptionSource {
-  /** 信源标识符：HTTP(S) URL / imaps?:// 连接串 / api:// 端点等 */
+  /** 信源标识符：HTTP(S) URL、imaps?:// 连接串、或插件自定义协议（如 lingowhale://） */
   ref: string;
   /** 信源类型（省略时由 getSource 自动识别） */
   type?: SourceType;

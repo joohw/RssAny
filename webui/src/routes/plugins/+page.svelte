@@ -4,8 +4,7 @@
   interface Plugin {
     id: string;
     listUrlPattern: string;
-    hasParser: boolean;
-    hasExtractor: boolean;
+    hasEnrich: boolean;
     hasAuth: boolean;
   }
 
@@ -75,15 +74,14 @@
 <div class="container">
   <div class="page-header">
     <h1>插件管理</h1>
-    <p class="page-desc">插件扩展了 RssAny 对特定站点的支持，使其能够精准解析列表结构、提取正文内容，并处理需要登录的站点</p>
+    <p class="page-desc">插件扩展了 RssAny 对特定站点的支持，无需修改核心代码即可接入新站点或 API</p>
   </div>
 
   <div class="info-box">
-    <strong>插件的用途</strong>：为任意站点提供定制化的快速接入能力。每个插件对应一类 URL 模式，声明该站点的解析、提取与认证规则，无需修改核心代码即可扩展新站点。
+    <strong>插件的用途</strong>：每个插件对应一类 URL 模式，实现 <code>fetchItems</code> 返回条目列表，可选实现 <code>enrichItem</code> 在后台异步补全正文。
     <ul>
       <li>在 <code>plugins/</code> 目录新建 <code>xxx.rssany.js</code> 即可自动加载</li>
-      <li><strong>Parser</strong> — 自定义列表页解析规则，替代通用 LLM 解析，更快更准确</li>
-      <li><strong>Extractor</strong> — 自定义正文提取规则，获取完整文章内容</li>
+      <li><strong>正文提取</strong> — 插件实现了 <code>enrichItem</code>，支持后台异步补全正文内容</li>
       <li><strong>需要登录</strong> — 该站点需要身份认证，可在此处检查或打开登录页完成授权</li>
     </ul>
   </div>
@@ -114,13 +112,10 @@
                 {#if plugin.hasAuth}
                   <span class="badge badge-auth">需要登录</span>
                 {/if}
-                {#if plugin.hasParser}
-                  <span class="badge badge-parser">Parser</span>
+                {#if plugin.hasEnrich}
+                  <span class="badge badge-enrich">正文提取</span>
                 {/if}
-                {#if plugin.hasExtractor}
-                  <span class="badge badge-extractor">Extractor</span>
-                {/if}
-                {#if !plugin.hasAuth && !plugin.hasParser && !plugin.hasExtractor}
+                {#if !plugin.hasAuth && !plugin.hasEnrich}
                   <span style="color:#ccc;font-size:0.75rem">—</span>
                 {/if}
               </td>
@@ -205,8 +200,7 @@
     margin-right: 0.25rem;
   }
   .badge-auth { background: #fff7e0; color: #92640a; border: 1px solid #f0d080; }
-  .badge-parser { background: #e8f4fd; color: #0969da; border: 1px solid #b8dcf8; }
-  .badge-extractor { background: #e6f9ee; color: #1a7f37; border: 1px solid #a8e6be; }
+  .badge-enrich { background: #e6f9ee; color: #1a7f37; border: 1px solid #a8e6be; }
 
   .btn {
     display: inline-flex;

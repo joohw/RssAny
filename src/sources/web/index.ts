@@ -1,4 +1,4 @@
-// WebSource：将 Site 插件包装为 Source 接口，注入 SiteContext 工具
+// 插件加载与包装：将 Site 插件包装为 Source 接口，注入 SiteContext 工具
 
 import { fetchHtml as fetchHtmlFn, preCheckAuth } from "./fetcher/index.js";
 import { parseHtml } from "./parser/index.js";

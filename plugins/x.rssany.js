@@ -144,15 +144,10 @@ async function fetchItems(sourceId, ctx) {
 
   const bodyText = normalizeText(root.textContent).toLowerCase();
   const isErrorPage = bodyText.includes("something went wrong") || bodyText.includes("try again");
-  const metaTitle = normalizeText(root.querySelector("title")?.textContent);
-  const metaDesc = normalizeText(root.querySelector('meta[name="description"]')?.getAttribute("content"));
-  return [{
-    guid: createHash("sha256").update(sourceId).digest("hex"),
-    title: isErrorPage ? "X 页面暂不可用（可能被风控或需登录）" : (metaTitle || "X (Twitter)"),
-    link: sourceId,
-    pubDate: new Date(),
-    summary: metaDesc || metaTitle || (isErrorPage ? "X 返回错误页，请稍后重试或切换为有头模式并确认登录态" : "未解析到推文条目"),
-  }];
+  const message = isErrorPage
+    ? "X 页面暂不可用（可能被风控或需登录），请稍后重试或切换为有头模式并确认登录态"
+    : "未解析到推文条目，可能被风控或需登录";
+  throw new Error(`[X] ${message}`);
 }
 
 
