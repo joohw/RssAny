@@ -22,7 +22,7 @@
     _subTitle: string;
   }
 
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 20;
 
   let allItems: FeedItem[] = [];
   let activeFilter = 'all';
@@ -37,6 +37,7 @@
   let badgeText = '';
 
   let listEl: HTMLElement | null = null;  // 滚动容器引用，供 IntersectionObserver 做 root
+  let showBackTop = false;
   let esRef: EventSource | null = null;
 
   $: itemCount = allItems.length;
@@ -132,6 +133,14 @@
   function hideBadge() { pendingNewCount = 0; showBadge = false; }
   function dismissBadge() { loadFeed(true); }
 
+  function onListScroll() {
+    showBackTop = (listEl?.scrollTop ?? 0) > 400;
+  }
+
+  function scrollToTop() {
+    listEl?.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   /**
    * Svelte Action：挂载到哨兵元素上，以 listEl（滚动容器）为 root 创建 IntersectionObserver。
    * 元素出现时自动 observe，元素从 DOM 移除时（{#if hasMore} 为 false 时）自动 disconnect。
@@ -215,7 +224,7 @@
     </div>
 
     <!-- 条目列表；bind:this 供 IntersectionObserver 做 root -->
-    <div class="feed-list" bind:this={listEl}>
+    <div class="feed-list" bind:this={listEl} on:scroll={onListScroll}>
       {#if loading && allItems.length === 0}
         <div class="state">加载中…</div>
       {:else if loadError && allItems.length === 0}
@@ -256,6 +265,10 @@
     </div>
   </div>
 </div>
+
+{#if showBackTop}
+  <button class="back-top" on:click={scrollToTop} aria-label="回到顶部">↑</button>
+{/if}
 
 <style>
   .feed-wrap {
@@ -409,6 +422,27 @@
     color: #ccc;
     font-size: 0.8rem;
   }
+
+  .back-top {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    background: #111;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    transition: background 0.15s, opacity 0.2s;
+    z-index: 50;
+  }
+  .back-top:hover { background: #333; }
 
   @media (max-width: 600px) {
     .feed-wrap { max-width: 100%; }
