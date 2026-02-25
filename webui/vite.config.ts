@@ -16,7 +16,6 @@ export default defineConfig({
         // 只代理 /parse/<url> 形式，不代理 /parse 本身（SPA 路由）
         bypass(req) {
           const url = req.url ?? '';
-          // /parse 本身由 SPA 处理；/parse/ 开头后面有 URL 路径则代理到 Hono
           if (url === '/parse' || url.startsWith('/parse?')) return url;
           return undefined;
         },

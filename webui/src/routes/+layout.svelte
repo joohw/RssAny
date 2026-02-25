@@ -4,20 +4,31 @@
   interface NavLink { href: string; label: string }
 
   const allLinks: NavLink[] = [
-    { href: '/', label: '信息流' },
+    { href: '/all', label: '信息流' },
     { href: '/web2rss', label: 'Web2RSS' },
     { href: '/subscriptions', label: '订阅管理' },
     { href: '/admin', label: 'Admin' },
   ];
+
+  // 非信息流的固定路由前缀
+  const nonFeedPrefixes = ['/web2rss', '/subscriptions', '/admin', '/plugins', '/parse', '/extractor', '/preview', '/auth', '/rss', '/api'];
+
+  function isActive(link: NavLink, pathname: string): boolean {
+    if (link.href === '/all') {
+      // 信息流：当前路径不属于任何其他固定路由时激活
+      return !nonFeedPrefixes.some((p) => pathname.startsWith(p));
+    }
+    return pathname.startsWith(link.href);
+  }
 </script>
 
 <div class="topbar">
-  <a class="topbar-brand" href="/">RssAny</a>
+  <a class="topbar-brand" href="/all">RssAny</a>
   <nav class="topbar-nav">
     {#each allLinks as link}
       <a
         href={link.href}
-        class:active={$page.url.pathname.startsWith(link.href) && (link.href !== '/' || $page.url.pathname === '/')}
+        class:active={isActive(link, $page.url.pathname)}
         class:admin={link.href === '/admin'}
       >{link.label}</a>
     {/each}
