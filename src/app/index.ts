@@ -27,7 +27,7 @@ function startCloudflareTunnel(): void {
     const text = chunk.toString();
     const m = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (m) {
-      logger.info("app", "Cloudflare 公网隧道已就绪", { url: `${m[0]}/` });
+      console.log(`Cloudflare 公网隧道已就绪: ${m[0]}/`);
       proc.stdout?.removeListener("data", onData);
       proc.stderr?.removeListener("data", onData);
     }
@@ -82,11 +82,11 @@ async function main() {
   await initScheduler(CACHE_DIR);
   const app = createApp();
   serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" });
-  logger.info("app", "服务已启动", { port: PORT, url: `http://127.0.0.1:${PORT}/` });
+  console.log(`服务已启动 http://127.0.0.1:${PORT}/`);
   const lanIp = Object.values(networkInterfaces()).flat().find((iface) => iface?.family === "IPv4" && !iface.internal)?.address;
-  if (lanIp) logger.info("app", "局域网访问", { url: `http://${lanIp}:${PORT}/` });
+  if (lanIp) console.log(`局域网访问 http://${lanIp}:${PORT}/`);
   const adminToken = await getAdminToken();
-  logger.info("app", "Admin 入口", { token: adminToken, adminUrl: `http://127.0.0.1:${PORT}/admin` });
+  console.log(`Admin 入口 token=${adminToken}  http://127.0.0.1:${PORT}/admin`);
   if (IS_DEV) {
     watchPlugins();
   }

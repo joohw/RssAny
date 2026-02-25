@@ -21,13 +21,14 @@ function isoToRfc822(iso: string): string {
 
 
 function buildItem(entry: RssEntry): string {
-  const title = escapeXml(entry.title);
-  const link = escapeXml(entry.link);
-  const desc = entry.description.includes("<") || entry.description.includes(">")
-    ? `<![CDATA[${entry.description.replace(/\]\]>/g, "]]]]><![CDATA[>")}]]>`
-    : escapeXml(entry.description);
+  const title = escapeXml(entry.title ?? "");
+  const link = escapeXml(entry.link ?? "");
+  const descRaw = entry.description ?? "";
+  const desc = descRaw.includes("<") || descRaw.includes(">")
+    ? `<![CDATA[${descRaw.replace(/\]\]>/g, "]]]]><![CDATA[>")}]]>`
+    : escapeXml(descRaw);
   const pubDate = entry.published ? escapeXml(isoToRfc822(entry.published)) : "";
-  const guid = entry.guid ?? entry.link;
+  const guid = entry.guid ?? entry.link ?? "";
   const guidEscaped = escapeXml(guid);
   let buf = `    <item>\n      <title>${title}</title>\n      <link>${link}</link>\n      <description>${desc}</description>\n`;
   if (pubDate) buf += `      <pubDate>${pubDate}</pubDate>\n`;

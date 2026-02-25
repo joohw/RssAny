@@ -1,37 +1,11 @@
-// 统一日志：按级别输出到控制台，error/warn 可落库，不把一切打满控制台
+// 统一日志：仅落库，不打印控制台；全体级别落库，由日志页/API 查看
 
 import { insertLog } from "../db/index.js";
-import {
-  getConsoleLevel,
-  getLogToDb,
-  getDbLevel,
-  shouldLogToConsole,
-  shouldLogToDb,
-} from "./config.js";
+import { getLogToDb } from "./config.js";
 import type { LogCategory, LogEntry, LogLevel } from "./types.js";
 
 function now(): string {
   return new Date().toISOString();
-}
-
-function formatConsole(entry: LogEntry): string {
-  const tag = `[${entry.category}]`;
-  const payloadStr =
-    entry.payload != null && Object.keys(entry.payload).length > 0
-      ? " " + JSON.stringify(entry.payload)
-      : "";
-  return `${tag} ${entry.message}${payloadStr}`;
-}
-
-function writeConsole(entry: LogEntry): void {
-  const line = formatConsole(entry);
-  if (entry.level === "error") {
-    console.error(line);
-  } else if (entry.level === "warn") {
-    console.warn(line);
-  } else {
-    console.log(line);
-  }
 }
 
 function writeDb(entry: LogEntry): void {
@@ -54,17 +28,12 @@ function emit(level: LogLevel, category: LogCategory, message: string, meta?: { 
     created_at: now(),
   };
 
-  const consoleLevel = getConsoleLevel();
-  if (shouldLogToConsole(consoleLevel, level)) {
-    writeConsole(entry);
-  }
-
-  if (shouldLogToDb(getLogToDb(), getDbLevel(), level)) {
+  if (getLogToDb()) {
     writeDb(entry);
   }
 }
 
-/** 统一 logger：error/warn 可落库，控制台由 LOG_LEVEL 过滤 */
+/** 统一 logger：仅落库，不输出控制台；全体级别落库 */
 export const logger = {
   error(category: LogCategory, message: string, meta?: { source_url?: string; [k: string]: unknown }) {
     emit("error", category, message, meta);

@@ -1,7 +1,7 @@
 // 日志类型与结构化条目
-// 设计原则：控制台由 LOG_LEVEL 过滤（默认 info），不把一切打满控制台；error/warn 可落库便于按信源排查。
+// 设计原则：logger 仅落库不打印控制台；全体级别落库，由日志页/API 查看。
 
-/** 日志级别：控制输出与落库策略（debug < info < warn < error） */
+/** 日志级别：debug < info < warn < error */
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
 /** 日志分类：按模块筛选，便于在 DB/控制台按 category 过滤 */
@@ -42,17 +42,17 @@ export interface LogEntry {
   created_at: string;
 }
 
-/** 写入目标：控制台 / 数据库（内部用） */
+/** 写入目标：数据库（控制台不输出，仅启动信息用 console） */
 export interface LogWriter {
   write(entry: LogEntry): void;
 }
 
-/** 从环境读取的日志配置 */
+/** 从环境读取的日志配置（落库开关；控制台相关已废弃） */
 export interface LogConfig {
-  /** 控制台输出最低级别，低于此级别不打印 */
-  consoleLevel: LogLevel;
-  /** 是否将 error/warn 写入数据库 */
+  /** 是否将日志写入数据库（全体级别） */
   logToDb: boolean;
-  /** 落库的最低级别（默认 warn，即 error + warn） */
-  dbLevel: LogLevel;
+  /** @deprecated 控制台已不输出 */
+  consoleLevel?: LogLevel;
+  /** @deprecated 现为全体级别落库 */
+  dbLevel?: LogLevel;
 }

@@ -17,7 +17,7 @@ import { ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sources/web/fet
 import { getWebSite, getBestSite, getPluginSites, toAuthFlow, buildSiteContext } from "../sources/web/index.js";
 import type { FeedItem } from "../types/feedItem.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
-import { queryItems, queryFeedItems, getPendingPushItems, markPushed } from "../db/index.js";
+import { queryItems, queryFeedItems, getPendingPushItems, markPushed, queryLogs } from "../db/index.js";
 import { enrichQueue } from "../enrich/index.js";
 import { getAdminToken } from "../config/adminToken.js";
 import { logger } from "../logger/index.js";
@@ -176,6 +176,20 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     } catch (err) {
       return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
     }
+  });
+  // API：查询日志（按 level/category/source_url/since 筛选，分页）
+  app.get("/api/logs", async (c) => {
+    const levelParam = c.req.query("level");
+    const level = levelParam === "error" || levelParam === "warn" || levelParam === "info" || levelParam === "debug" ? levelParam : undefined;
+    const categoryParam = c.req.query("category");
+    const category = categoryParam && /^(feeder|scheduler|enrich|db|auth|plugin|source|llm|app|config)$/.test(categoryParam) ? categoryParam : undefined;
+    const source_url = c.req.query("source_url") ?? undefined;
+    const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+    const offset = Number(c.req.query("offset") ?? 0);
+    const sinceParam = c.req.query("since");
+    const since = sinceParam ? new Date(sinceParam) : undefined;
+    const result = await queryLogs({ level, category: category as import("../logger/types.js").LogCategory | undefined, source_url, limit, offset, since });
+    return c.json(result);
   });
   // API：返回插件列表 JSON
   app.get("/api/plugins", (c) => {

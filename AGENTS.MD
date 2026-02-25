@@ -78,15 +78,8 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 ### db（数据库层）
 - **职责**：管理 SQLite 单例，提供 FeedItem 的增量写入与查询
 - **位置**：`.rssany/data/rssany.db`
-- **接口**：`upsertItems`、`updateItemContent`、`queryItems`、`getPendingPushItems`、`markPushed`、`insertLog`、`queryLogs`
+- **接口**：`upsertItems`、`updateItemContent`、`queryItems`、`getPendingPushItems`、`markPushed`
 - **FTS5**：`items_fts` 虚拟表支持对 title/summary/content 全文检索
-- **logs 表**：存储结构化日志（level、category、message、payload、source_url、created_at），供按信源/级别/时间筛选
-
-### logger（日志）
-- **职责**：统一日志输出，控制台按级别过滤，error/warn 可落库，避免一切打满控制台
-- **级别**：`debug` < `info` < `warn` < `error`；**分类**：`feeder`、`scheduler`、`enrich`、`db`、`auth`、`plugin`、`source`、`llm`、`app`、`config`
-- **环境变量**：`LOG_LEVEL` 控制台最低级别（默认 info）；`LOG_TO_DB` 是否落库（默认 true）；`LOG_DB_LEVEL` 落库最低级别（默认 warn）
-- **约定**：业务代码使用 `logger.info(category, message, meta)`，不直接使用 `console.*`；payload 建议含 `err`、`source_url`、`taskId`、`item_url` 等便于排查
 
 ### utils（共享工具）
 - **`utils/refreshInterval.ts`**：`RefreshInterval` 类型定义 + `refreshIntervalToMs` 转换函数，全项目唯一权威来源

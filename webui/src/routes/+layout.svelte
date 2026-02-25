@@ -7,11 +7,12 @@
     { href: '/all', label: '信息流' },
     { href: '/web2rss', label: 'Web2RSS' },
     { href: '/subscriptions', label: '订阅管理' },
+    { href: '/logs', label: '日志' },
     { href: '/admin', label: 'Admin' },
   ];
 
   // 非信息流的固定路由前缀
-  const nonFeedPrefixes = ['/web2rss', '/subscriptions', '/admin', '/plugins', '/parse', '/extractor', '/preview', '/auth', '/rss', '/api'];
+  const nonFeedPrefixes = ['/web2rss', '/subscriptions', '/admin', '/logs', '/plugins', '/parse', '/extractor', '/preview', '/auth', '/rss', '/api'];
 
   function isActive(link: NavLink, pathname: string): boolean {
     if (link.href === '/all') {
