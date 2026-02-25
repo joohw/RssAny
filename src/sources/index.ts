@@ -4,9 +4,10 @@ import { loadPlugins, createWebSource, genericWebSource, setLoadedSites } from "
 import { rssSource, looksLikeFeed } from "./api/rss.js";
 import { emailSource } from "./email/index.js";
 import type { Source } from "./types.js";
+import { logger } from "../logger/index.js";
 
 
-/** 所有已注册的信源（优先级从高到低：Web 插件 → RssSource → genericWebSource） */
+/** 所有已注册的信源（优先级从高到低：插件 → RssSource → genericWebSource） */
 export const registeredSources: Source[] = [];
 
 /** 将字符串 URL 模式转为正则：{placeholder} 匹配单个路径段，末尾允许 query */
@@ -26,7 +27,7 @@ function sourcePatternToRegex(pattern: string | RegExp): RegExp {
 export function getSource(sourceId: string): Source {
   // 优先：IMAP 邮件信源
   if (/^imaps?:\/\//.test(sourceId)) return emailSource;
-  // 次优先：Web 插件（具体 URL 模式）
+  // 次优先：插件（具体 URL 模式）
   const webPlugins = registeredSources.filter((s) => s.id !== "__rss__" && s.id !== "generic");
   for (const source of webPlugins) {
     try {
@@ -61,5 +62,5 @@ export async function initSources(): Promise<void> {
   }
   registeredSources.push(rssSource);
   registeredSources.push(genericWebSource);
-  console.log(`[Sources] 已注册 ${registeredSources.length} 个信源（${sites.length} 个 Web 插件 + 1 个 RSS + 1 个邮件 + 1 个通用）`);
+  logger.info("source", "信源已注册", { total: registeredSources.length, pluginCount: sites.length });
 }

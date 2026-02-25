@@ -20,6 +20,7 @@ import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 import { queryItems, queryFeedItems, getPendingPushItems, markPushed } from "../db/index.js";
 import { enrichQueue } from "../enrich/index.js";
 import { getAdminToken } from "../config/adminToken.js";
+import { logger } from "../logger/index.js";
 
 
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
@@ -290,7 +291,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       await page.setViewport({ width: 1366, height: 960 });
       await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     }).catch((err) => {
-      console.warn("[Auth] 打开登录页面失败:", err instanceof Error ? err.message : String(err));
+      logger.warn("auth", "打开登录页面失败", { err: err instanceof Error ? err.message : String(err) });
     });
     return c.json({ ok: true, message: "已打开登录页面" });
   });
@@ -311,7 +312,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     }
     const authFlow = toAuthFlow(site);
     if (!authFlow) return c.json({ ok: false, message: "该站点无需登录" }, 400);
-    ensureAuth(authFlow, CACHE_DIR).then(() => console.log("[Auth] ensureAuth 完成")).catch((e) => console.warn("[Auth] ensureAuth 失败", e));
+    ensureAuth(authFlow, CACHE_DIR).then(() => logger.info("auth", "ensureAuth 完成")).catch((e) => logger.warn("auth", "ensureAuth 失败", { err: e instanceof Error ? e.message : String(e) }));
     return c.json({ ok: true, message: "已打开登录窗口，请在弹出的浏览器中完成登录，完成后刷新订阅页面即可。" });
   });
   // ── 错误页渲染辅助（仍使用 statics/ 中的 401/404.html）────────────────────────

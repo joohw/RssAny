@@ -7,6 +7,7 @@ import { applyPurify } from "./purify.js";
 import { findChromeExecutable } from "./cdp.js";
 import type { AuthFlow } from "../../../auth/index.js";
 import type { RequestConfig, StructuredHtmlResult } from "./types.js";
+import { logger } from "../../../logger/index.js";
 
 
 /** 解析代理：优先 config.proxy，否则从 HTTP_PROXY/HTTPS_PROXY 读取 */
@@ -155,7 +156,7 @@ export async function getOrCreateBrowser(config: {
       return _browser!;
     }
     // 模式不一致（无头→有头 或 有头→无头）：关闭后重开
-    console.log(`[Browser] 切换模式 ${_browserHeadless ? "无头" : "有头"} → ${wantHeadless ? "无头" : "有头"}`);
+    logger.info("source", "浏览器切换模式", { from: _browserHeadless ? "无头" : "有头", to: wantHeadless ? "无头" : "有头" });
     await _browser!.close().catch(() => {});
     _browser = null;
     _launchPromise = null;
@@ -168,7 +169,7 @@ export async function getOrCreateBrowser(config: {
         throw new Error("未找到 Chrome 可执行文件，请安装 Google Chrome 或设置 CHROME_PATH 环境变量");
       }
       const userDataDir = getUserDataDir(config.cacheDir);
-      console.log(`[Browser] 启动${wantHeadless ? "无头" : "有头"} Chrome: ${executablePath}`);
+      logger.info("source", "启动 Chrome", { headless: wantHeadless, executablePath });
       const browser = await puppeteerCore.launch({
         headless: wantHeadless,
         args: launchArgs({ proxy: config.proxy, headless: wantHeadless }),
@@ -227,21 +228,21 @@ export async function ensureAuth(
   const page = await browser.newPage();
   try {
     await setupPage(page, false);
-    console.log(`[Auth] 打开登录页面: ${loginUrl}`);
+    logger.info("auth", "打开登录页面", { loginUrl });
     await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const authenticated = await checkAuth(page, page.url());
     if (authenticated) {
-      console.log(`[Auth] domain ${domain ?? "unknown"} 已登录，无需重新登录`);
+      logger.info("auth", "已登录，无需重新登录", { domain: domain ?? "unknown" });
       return;
     }
-    console.log(`[Auth] domain ${domain ?? "unknown"} 未登录或已失效，等待用户登录...`);
+    logger.info("auth", "未登录或已失效，等待用户登录", { domain: domain ?? "unknown" });
     const startTime = Date.now();
     while (Date.now() - startTime < loginTimeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       const authenticated = await checkAuth(page, page.url());
       if (authenticated) {
-        console.log("[Auth] 登录成功，userDataDir 已持久化登录态");
+        logger.info("auth", "登录成功，userDataDir 已持久化登录态");
         return;
       }
     }

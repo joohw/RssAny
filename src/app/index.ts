@@ -10,6 +10,7 @@ import { initSources as initSites } from "../sources/index.js";
 import { initScheduler } from "../scheduler/index.js";
 import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../config/paths.js";
 import { getAdminToken } from "../config/adminToken.js";
+import { logger } from "../logger/index.js";
 
 
 const PORT = Number(process.env.PORT) || 3751;
@@ -26,7 +27,7 @@ function startCloudflareTunnel(): void {
     const text = chunk.toString();
     const m = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (m) {
-      console.log(`Cloudflare 公网: ${m[0]}/`);
+      logger.info("app", "Cloudflare 公网隧道已就绪", { url: `${m[0]}/` });
       proc.stdout?.removeListener("data", onData);
       proc.stderr?.removeListener("data", onData);
     }
@@ -35,13 +36,13 @@ function startCloudflareTunnel(): void {
   proc.stderr?.on("data", onData);
   proc.on("error", (err) => {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      console.warn("未找到 cloudflared，跳过隧道。安装: brew install cloudflared");
+      logger.warn("app", "未找到 cloudflared，跳过隧道", { hint: "brew install cloudflared" });
     } else {
-      console.warn("Cloudflare 隧道启动失败:", err.message);
+      logger.warn("app", "Cloudflare 隧道启动失败", { err: err.message });
     }
   });
   proc.on("exit", (code) => {
-    if (code != null && code !== 0) console.warn("cloudflared 退出:", code);
+    if (code != null && code !== 0) logger.warn("app", "cloudflared 退出", { code });
   });
 }
 
@@ -55,7 +56,7 @@ function watchPlugins(): void {
       try {
         await initSites();
       } catch (err) {
-        console.error(`[Dev] 插件重新加载失败:`, err instanceof Error ? err.message : String(err));
+        logger.error("plugin", "插件重新加载失败", { err: err instanceof Error ? err.message : String(err) });
       }
     }, 300);
   };
@@ -65,7 +66,7 @@ function watchPlugins(): void {
       if (eventType === "rename" || eventType === "change") debouncedReload();
     });
     watcher.on("error", (err) => {
-      console.warn(`[Dev] 插件监听错误 (${dir}):`, err.message);
+      logger.warn("plugin", "插件目录监听错误", { dir, err: err.message });
     });
   }
 }
@@ -81,11 +82,11 @@ async function main() {
   await initScheduler(CACHE_DIR);
   const app = createApp();
   serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" });
-  console.log(`RssAny 本机: http://127.0.0.1:${PORT}/`);
+  logger.info("app", "服务已启动", { port: PORT, url: `http://127.0.0.1:${PORT}/` });
   const lanIp = Object.values(networkInterfaces()).flat().find((iface) => iface?.family === "IPv4" && !iface.internal)?.address;
-  if (lanIp) console.log(`RssAny 局域网: http://${lanIp}:${PORT}/`);
+  if (lanIp) logger.info("app", "局域网访问", { url: `http://${lanIp}:${PORT}/` });
   const adminToken = await getAdminToken();
-  console.log(`[Admin] Token: ${adminToken}  →  http://127.0.0.1:${PORT}/admin`);
+  logger.info("app", "Admin 入口", { token: adminToken, adminUrl: `http://127.0.0.1:${PORT}/admin` });
   if (IS_DEV) {
     watchPlugins();
   }

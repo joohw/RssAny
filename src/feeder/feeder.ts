@@ -11,6 +11,7 @@ import type { FeedItem } from "../types/feedItem.js";
 import type { FeederConfig, FeederResult } from "./types.js";
 import { upsertItems, updateItemContent } from "../db/index.js";
 import { enrichQueue } from "../enrich/index.js";
+import { logger } from "../logger/index.js";
 
 
 const FEEDS_SUBDIR = "feeds";
@@ -83,20 +84,6 @@ function buildRssFromCache(cache: FeedCache): string {
 }
 
 
-/** 错误 RSS：URL 抓取失败（如 404）时返回 */
-function buildErrorRss(listUrl: string, message: string): string {
-  const channel: RssChannel = {
-    title: "RSS 抓取失败",
-    link: listUrl,
-    description: message,
-  };
-  const entries: RssEntry[] = [
-    { title: "抓取失败", link: listUrl, description: message, guid: "error" },
-  ];
-  return buildRssXml(channel, entries);
-}
-
-
 /** 同一 URL 的首次生成任务去重（仅在初始 fetch+parse 阶段有效） */
 const generatingKeys = new Map<string, Promise<{ xml: string; items: FeedItem[]; enrichTaskId?: string }>>();
 
@@ -112,8 +99,8 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   } catch (err) {
     generatingKeys.delete(key);
     const message = err instanceof Error ? err.message : String(err);
-    const xml = buildErrorRss(listUrl, `抓取失败: ${message}`);
-    return { xml, items: [] };
+    logger.warn("feeder", "抓取失败", { source_url: listUrl, err: message });
+    throw err;
   }
   const channel: RssChannel = {
     title: items[0]?.author ? `${items[0].author} 的订阅` : "RSS 订阅",
@@ -128,7 +115,9 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   }
   generatingKeys.delete(key);
   if (config.writeDb) {
-    upsertItems(items, listUrl).catch((err) => console.warn("[db] upsertItems 失败:", err instanceof Error ? err.message : err));
+    upsertItems(items, listUrl).catch((err) =>
+      logger.warn("db", "upsertItems 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+    );
   }
   if (!includeContent || items.length === 0 || source.enrichItem == null) {
     return { xml: initialXml, items };
@@ -142,7 +131,9 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
       onItemDone: async (enrichedItem, index) => {
         items[index] = enrichedItem;
         if (config.writeDb) {
-          updateItemContent(enrichedItem).catch((err) => console.warn("[db] updateItemContent 失败:", err instanceof Error ? err.message : err));
+          updateItemContent(enrichedItem).catch((err) =>
+            logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+          );
         }
         if (cacheDir) {
           const xml = buildRssFromCache(cache);
@@ -176,7 +167,9 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
     ]);
     if (cachedXml != null) {
       if (config.writeDb && cachedItems != null && cachedItems.length > 0) {
-        upsertItems(cachedItems, listUrl).catch((err) => console.warn("[db] upsertItems(缓存命中) 失败:", err instanceof Error ? err.message : err));
+        upsertItems(cachedItems, listUrl).catch((err) =>
+          logger.warn("db", "upsertItems(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+        );
       }
       return { xml: cachedXml, fromCache: true, items: cachedItems ?? [] };
     }

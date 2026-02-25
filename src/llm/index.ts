@@ -3,6 +3,7 @@
 import OpenAI from "openai";
 import { getLLMConfig } from "./config.js";
 import type { LLMConfig } from "./config.js";
+import { logger } from "../logger/index.js";
 
 
 /** 合并调用方配置与环境变量配置 */
@@ -23,7 +24,7 @@ export async function chatJson(
   options?: { maxTokens?: number; debugLabel?: string }
 ): Promise<Record<string, unknown>> {
   const { apiKey, baseUrl, model } = mergeConfig(config);
-  if (options?.debugLabel) console.log(`[${options.debugLabel}] HTML 总长度:`, prompt.length, "字符");
+  if (options?.debugLabel) logger.debug("llm", "HTML 总长度", { label: options.debugLabel, length: prompt.length });
   const openai = new OpenAI({ apiKey, baseURL: baseUrl });
   try {
     const completion = await openai.chat.completions.create({
@@ -34,13 +35,13 @@ export async function chatJson(
     });
     const content = completion.choices[0]?.message?.content;
     if (!content) {
-      if (options?.debugLabel) console.error(`[${options.debugLabel}] LLM API 返回空内容`);
+      if (options?.debugLabel) logger.error("llm", "API 返回空内容", { label: options.debugLabel });
       throw new Error("LLM 返回空内容");
     }
     return JSON.parse(content) as Record<string, unknown>;
   } catch (err) {
     if (options?.debugLabel) {
-      console.error(`[${options.debugLabel}] LLM API 调用失败:`, err instanceof Error ? err.message : String(err));
+      logger.error("llm", "API 调用失败", { label: options.debugLabel, err: err instanceof Error ? err.message : String(err) });
     }
     throw err;
   }

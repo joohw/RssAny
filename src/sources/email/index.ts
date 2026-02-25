@@ -3,8 +3,9 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { createHash } from "node:crypto";
-import type { Source, SourceContext } from "../types.js";
+import type { Source as RssSource, SourceContext } from "../types.js";
 import type { FeedItem } from "../../types/feedItem.js";
+import { logger } from "../../logger/index.js";
 
 
 
@@ -40,7 +41,7 @@ function makeGuid(messageId: string | null | undefined, uid: number, host: strin
 
 
 /** 内置 EmailSource：匹配所有 imap:// 和 imaps:// 协议 URL，刷新间隔 30 分钟 */
-export const emailSource: Source = {
+export const emailSource: RssSource = {
   id: "__email__",
   pattern: /^imaps?:\/\//,
   refreshInterval: "30min",
@@ -58,11 +59,14 @@ export const emailSource: Source = {
     try {
       const lock = await client.getMailboxLock(folder);
       try {
-        const total = client.mailbox?.exists ?? 0;
+        const mailbox = client.mailbox;
+        if (mailbox === false) return [];
+        const total = mailbox.exists ?? 0;
         if (total === 0) return [];
         const start = Math.max(1, total - limit + 1);
         for await (const msg of client.fetch(`${start}:*`, { source: true, envelope: true })) {
           try {
+            if (msg.source === undefined || msg.envelope === undefined) continue;
             const parsed = await simpleParser(msg.source);
             const envelope = msg.envelope;
             const guid = makeGuid(envelope.messageId, msg.uid, host);
@@ -77,7 +81,7 @@ export const emailSource: Source = {
             const summary = textBody?.slice(0, 300) || undefined;
             items.push({ guid, title, link, pubDate, author, summary, contentHtml });
           } catch (err) {
-            console.warn("[email] 解析单封邮件失败:", err instanceof Error ? err.message : err);
+            logger.warn("source", "解析单封邮件失败", { err: err instanceof Error ? err.message : String(err) });
           }
         }
       } finally {

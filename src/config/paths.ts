@@ -2,6 +2,7 @@
 
 import { mkdir, rename, access } from "node:fs/promises";
 import { join } from "node:path";
+import { logger } from "../logger/index.js";
 
 
 /** 用户数据根目录：.rssany/（不纳入版本管理，存放所有运行时用户数据） */
@@ -45,9 +46,9 @@ async function migrateFile(from: string, to: string): Promise<void> {
   if (await pathExists(to)) return;
   try {
     await rename(from, to);
-    console.log(`[Config] 已迁移 ${from} → ${to}`);
+    logger.info("config", "配置已迁移", { from, to });
   } catch (err) {
-    console.warn(`[Config] 迁移 ${from} → ${to} 失败:`, err instanceof Error ? err.message : err);
+    logger.warn("config", "配置迁移失败", { from, to, err: err instanceof Error ? err.message : String(err) });
   }
 }
 

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import type { Site } from "./site.js";
 import { BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../../config/paths.js";
+import { logger } from "../../logger/index.js";
 
 
 const PLUGIN_EXTENSIONS = [".rssany.js", ".rssany.ts"];
@@ -43,10 +44,10 @@ async function loadPluginsFromDir(dir: string, label: string): Promise<Site[]> {
       if (isValidSite(site)) {
         plugins.push(site);
       } else {
-        console.warn(`[Plugin][${label}] ${name} 未实现 Site 接口（需要 id、listUrlPattern、fetchItems），已跳过`);
+        logger.warn("plugin", "插件未实现 Site 接口，已跳过", { label, name });
       }
     } catch (err) {
-      console.warn(`[Plugin][${label}] 加载 ${name} 失败:`, err);
+      logger.warn("plugin", "插件加载失败", { label, name, err: err instanceof Error ? err.message : String(err) });
     }
   }
   return plugins;
@@ -63,7 +64,7 @@ export async function loadPlugins(): Promise<Site[]> {
   for (const site of builtin) merged.set(site.id, site);
   for (const site of user) {
     if (merged.has(site.id)) {
-      console.log(`[Plugin] 用户插件 "${site.id}" 覆盖同名内置插件`);
+      logger.info("plugin", "用户插件覆盖同名内置插件", { pluginId: site.id });
     }
     merged.set(site.id, site);
   }

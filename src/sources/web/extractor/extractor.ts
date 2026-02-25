@@ -9,6 +9,7 @@ import { fetchHtml } from "../fetcher/index.js";
 import type { RequestConfig } from "../fetcher/types.js";
 import type { FeedItem } from "../../../types/feedItem.js";
 import type { ExtractedResult, ExtractorConfig } from "./types.js";
+import { logger } from "../../../logger/index.js";
 
 
 const EXTRACTED_SUBDIR = "extracted";
@@ -155,7 +156,7 @@ export async function extractItems(
     try {
       results.push(await extractItem(items[i], extractorConfig, fetchConfig));
     } catch (err) {
-      console.warn(`[extractor] 提取失败 ${items[i].link}:`, err instanceof Error ? err.message : String(err));
+      logger.warn("source", "正文提取失败", { item_url: items[i].link, err: err instanceof Error ? err.message : String(err) });
       results.push(items[i]);
     }
     onProgress?.(i + 1, items.length);

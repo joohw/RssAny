@@ -5,6 +5,7 @@ import type { FeedItem } from "../types/feedItem.js";
 import type { SourceContext } from "../sources/types.js";
 import type { EnrichTask, EnrichItemResult, EnrichConfig, EnrichFn, EnrichSubmitOptions } from "./types.js";
 import { loadEnrichConfig } from "./config.js";
+import { logger } from "../logger/index.js";
 
 
 /** 内部待执行工作单元 */
@@ -36,7 +37,7 @@ class EnrichQueue {
     if (this.configLoaded) return;
     this.config = await loadEnrichConfig();
     this.configLoaded = true;
-    console.log(`[EnrichQueue] 配置加载完成：并发=${this.config.concurrency} 重试=${this.config.maxRetries}`);
+    logger.info("enrich", "配置加载完成", { concurrency: this.config.concurrency, maxRetries: this.config.maxRetries });
   }
 
 
@@ -142,14 +143,20 @@ class EnrichQueue {
       const message = err instanceof Error ? err.message : String(err);
       if (retries < this.config.maxRetries) {
         itemResult.status = "pending";
-        console.warn(`[EnrichQueue] 提取失败，${retries + 1}/${this.config.maxRetries} 次重试 ${items[itemIndex]?.link ?? ""}:`, message);
+        logger.warn("enrich", "提取失败，重试中", {
+          source_url: task.sourceUrl,
+          item_url: items[itemIndex]?.link,
+          retries: retries + 1,
+          maxRetries: this.config.maxRetries,
+          err: message,
+        });
         this.enqueue({ taskId, itemIndex, retries: retries + 1 });
         return;
       }
       itemResult.status = "failed";
       itemResult.error = message;
       task.progress.failed++;
-      console.warn(`[EnrichQueue] 提取最终失败 ${items[itemIndex]?.link ?? ""}:`, message);
+      logger.warn("enrich", "提取最终失败", { source_url: task.sourceUrl, item_url: items[itemIndex]?.link, err: message });
       const failedItem = { ...items[itemIndex], extractionFailed: true };
       items[itemIndex] = failedItem;
       await Promise.resolve(callbacks?.onItemDone?.(failedItem, itemIndex));
@@ -168,9 +175,14 @@ class EnrichQueue {
     if (!allSettled) return;
     task.status = "done";
     task.completedAt = new Date().toISOString();
-    console.log(`[EnrichQueue] 任务完成 ${taskId}（${task.sourceUrl}）：成功 ${task.progress.done} / 失败 ${task.progress.failed}`);
+    logger.info("enrich", "任务完成", {
+      source_url: task.sourceUrl,
+      taskId,
+      done: task.progress.done,
+      failed: task.progress.failed,
+    });
     Promise.resolve(callbacks?.onAllDone?.(items)).catch((err) => {
-      console.warn("[EnrichQueue] onAllDone 回调异常:", err instanceof Error ? err.message : err);
+      logger.warn("enrich", "onAllDone 回调异常", { taskId, err: err instanceof Error ? err.message : String(err) });
     });
   }
 

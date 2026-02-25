@@ -1,9 +1,10 @@
-// 数据库模块：管理 SQLite 连接、schema 初始化与 FeedItem CRUD 操作
+// 数据库模块：管理 SQLite 连接、schema 初始化与 FeedItem CRUD、日志写入
 
 import Database from "better-sqlite3";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
+import type { LogEntry } from "../logger/types.js";
 import { DATA_DIR } from "../config/paths.js";
 import { emitFeedUpdated } from "../events/index.js";
 
@@ -46,6 +47,17 @@ function initSchema(db: Database.Database): void {
       content='items',
       content_rowid='rowid'
     );
+    CREATE TABLE IF NOT EXISTS logs (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      level       TEXT NOT NULL,
+      category    TEXT NOT NULL,
+      message     TEXT NOT NULL,
+      payload     TEXT,
+      source_url  TEXT,
+      created_at  TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_logs_level_created ON logs(level, created_at);
+    CREATE INDEX IF NOT EXISTS idx_logs_source_created ON logs(source_url, created_at);
   `);
 }
 
@@ -194,6 +206,64 @@ export async function getPendingPushItems(limit = 100): Promise<DbItem[]> {
 }
 
 
+/** 写入一条日志（由 logger 模块调用） */
+export async function insertLog(entry: LogEntry): Promise<void> {
+  const db = await getDb();
+  db.prepare(`
+    INSERT INTO logs (level, category, message, payload, source_url, created_at)
+    VALUES (@level, @category, @message, @payload, @source_url, @created_at)
+  `).run({
+    level: entry.level,
+    category: entry.category,
+    message: entry.message,
+    payload: entry.payload != null ? JSON.stringify(entry.payload) : null,
+    source_url: entry.source_url ?? null,
+    created_at: entry.created_at,
+  });
+}
+
+
+/** 查询日志：按级别、信源、时间范围筛选，分页 */
+export async function queryLogs(opts: {
+  level?: LogEntry["level"];
+  category?: LogEntry["category"];
+  source_url?: string;
+  limit?: number;
+  offset?: number;
+  since?: Date;
+}): Promise<{ items: DbLog[]; total: number }> {
+  const db = await getDb();
+  const { level, category, source_url, limit = 50, offset = 0, since } = opts;
+  const conditions: string[] = [];
+  const params: Record<string, unknown> = { limit, offset };
+  if (level) {
+    conditions.push("level = @level");
+    params.level = level;
+  }
+  if (category) {
+    conditions.push("category = @category");
+    params.category = category;
+  }
+  if (source_url) {
+    conditions.push("source_url = @source_url");
+    params.source_url = source_url;
+  }
+  if (since) {
+    conditions.push("created_at >= @since");
+    params.since = since.toISOString();
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const rows = db.prepare(`
+    SELECT id, level, category, message, payload, source_url, created_at
+    FROM logs ${where}
+    ORDER BY created_at DESC
+    LIMIT @limit OFFSET @offset
+  `).all(params) as DbLog[];
+  const { count } = db.prepare(`SELECT COUNT(*) as count FROM logs ${where}`).get(params) as { count: number };
+  return { items: rows, total: count };
+}
+
+
 /** 数据库行结构（snake_case，与 FeedItem 区分） */
 export interface DbItem {
   id: string;
@@ -206,4 +276,15 @@ export interface DbItem {
   pub_date: string | null;
   fetched_at: string;
   pushed_at: string | null;
+}
+
+/** 日志表行结构 */
+export interface DbLog {
+  id: number;
+  level: string;
+  category: string;
+  message: string;
+  payload: string | null;
+  source_url: string | null;
+  created_at: string;
 }
