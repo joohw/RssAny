@@ -13,9 +13,9 @@ import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promis
 import { SUBSCRIPTIONS_CONFIG_PATH } from "../config/paths.js";
 import { resolveRef } from "../subscription/types.js";
 import { extractFromLink } from "../sources/web/extractor/index.js";
-import { parseHtml } from "../sources/web/parser/index.js";
-import { fetchHtml, ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sources/web/fetcher/index.js";
-import { getWebSite, getSiteForDetail, getBestSite, getPluginSites, toAuthFlow } from "../sources/web/index.js";
+import { ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sources/web/fetcher/index.js";
+import { getWebSite, getBestSite, getPluginSites, toAuthFlow, buildSiteContext } from "../sources/web/index.js";
+import type { FeedItem } from "../types/feedItem.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
 import { queryItems, queryFeedItems, getPendingPushItems, markPushed } from "../db/index.js";
 import { enrichQueue } from "../enrich/index.js";
@@ -181,8 +181,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const plugins = getPluginSites().map((s) => ({
       id: s.id,
       listUrlPattern: typeof s.listUrlPattern === "string" ? s.listUrlPattern : String(s.listUrlPattern),
-      hasParser: !!s.parser,
-      hasExtractor: !!s.extractor,
+      hasEnrich: !!s.enrichItem,
       hasAuth: !!(s.checkAuth && s.loginUrl),
     }));
     return c.json(plugins);
@@ -328,25 +327,12 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
       const site = getBestSite(url);
-      const authFlow = site ? toAuthFlow(site) : undefined;
-      const proxy = site?.proxy;
-      const res = await fetchHtml(url, {
-        cacheDir: CACHE_DIR,
-        useCache: false,
-        authFlow,
-        timeoutMs: 60_000,
-        headless,
-        proxy,
-        waitAfterLoadMs: site?.waitAfterLoadMs ?? undefined,
-      });
-      if (res.status !== 200) {
-        return c.text(`拉取失败: ${res.status} ${res.statusText}`, 500);
+      if (!site) {
+        return c.text("无匹配插件，且通用解析需通过 /rss/ 路由触发", 404);
       }
-      const result = await parseHtml(res.body, {
-        url: res.finalUrl ?? url,
-        customParser: site?.parser ?? undefined,
-      });
-      return c.json(result);
+      const siteCtx = buildSiteContext(site, { cacheDir: CACHE_DIR, headless });
+      const items = await site.fetchItems(url, siteCtx);
+      return c.json({ items, url, mode: "plugin", pluginId: site.id });
     } catch (err) {
       if (err instanceof AuthRequiredError) {
         const html = await render401(url);
@@ -357,28 +343,34 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     }
   });
   app.get("/extractor/*", async (c) => {
-    const path = c.req.path;
-    const url = parseUrlFromPath(path, "/extractor");
+    const url = parseUrlFromPath(c.req.path, "/extractor");
     if (!url) return c.text("无效 URL，格式: /extractor/https://... 或 /extractor/example.com/...", 400);
     try {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
-      const site = getSiteForDetail(url) ?? getBestSite(url);
+      const site = getBestSite(url);
+      if (site?.enrichItem) {
+        // 插件有 enrichItem：构造桩 FeedItem 调用插件
+        const siteCtx = buildSiteContext(site, { cacheDir: CACHE_DIR, headless });
+        const stub: FeedItem = { guid: url, title: "", link: url, pubDate: new Date() };
+        const enriched = await site.enrichItem(stub, siteCtx);
+        return c.json({
+          title: enriched.title ?? null,
+          author: enriched.author ?? null,
+          pubDate: enriched.pubDate instanceof Date ? enriched.pubDate.toISOString() : (enriched.pubDate ?? null),
+          content: enriched.contentHtml ?? null,
+          _extractor: site.id,
+        });
+      }
+      // 降级：Readability 提取
       const proxy = site?.proxy;
-      const result = await extractFromLink(url, {
-        customExtractor: site?.extractor ?? undefined,
-      }, {
-        timeoutMs: 60_000,
-        headless,
-        proxy,
-      });
+      const result = await extractFromLink(url, {}, { timeoutMs: 60_000, headless, proxy });
       return c.json({
-        ...result,
+        title: result.title ?? null,
         author: result.author ?? null,
         pubDate: result.pubDate ?? null,
-        title: result.title ?? null,
         content: result.content ?? null,
-        _extractor: site?.id ?? "readability",
+        _extractor: "readability",
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

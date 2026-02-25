@@ -1,6 +1,7 @@
-// 小红书站点插件：用户主页列表解析、笔记详情提取、认证流程
+// 小红书站点插件：用户主页列表抓取、笔记详情提取、认证流程
 
 import { parse } from "node-html-parser";
+import { createHash } from "node:crypto";
 
 
 const XHS_ORIGIN = "https://www.xiaohongshu.com";
@@ -8,8 +9,7 @@ const XHS_ORIGIN = "https://www.xiaohongshu.com";
 
 function getOrigin(url) {
   try {
-    const u = new URL(url);
-    return u.origin;
+    return new URL(url).origin;
   } catch {
     return XHS_ORIGIN;
   }
@@ -35,13 +35,13 @@ function buildExploreLinkWithXsec(profileHref, origin) {
 }
 
 
-function parser(html, url) {
+function parseListHtml(html, url) {
   const root = parse(html);
   const origin = getOrigin(url);
   const feed = root.querySelector("#userPostedFeeds");
   if (!feed) return [];
   const sections = feed.querySelectorAll("section[data-v-79abd645][data-index]");
-  const entries = [];
+  const items = [];
   for (const section of sections) {
     const profileWithToken = section.querySelector('a[href*="xsec_token="]');
     const profileHref = profileWithToken?.getAttribute("href")?.trim();
@@ -59,10 +59,17 @@ function parser(html, url) {
     const titleEl = section.querySelector("span[data-v-51ec0135]");
     const title = (titleEl?.textContent ?? "").trim() || "笔记";
     const authorEl = section.querySelector('a[aria-current="page"] span');
-    const author = (authorEl?.textContent ?? "").trim() || "";
-    entries.push({ title, link, description: title, content: "", author });
+    const author = (authorEl?.textContent ?? "").trim() || undefined;
+    items.push({
+      guid: createHash("sha256").update(link).digest("hex"),
+      title,
+      link,
+      pubDate: new Date(),
+      author,
+      summary: title,
+    });
   }
-  return entries;
+  return items;
 }
 
 
@@ -70,8 +77,7 @@ function descToMarkdown(descEl) {
   if (!descEl) return "";
   const noteText = descEl.querySelector(".note-text");
   if (!noteText) {
-    const text = (descEl.textContent ?? "").trim();
-    return text;
+    return (descEl.textContent ?? "").trim();
   }
   const parts = [];
   for (const node of noteText.childNodes) {
@@ -94,12 +100,8 @@ function descToMarkdown(descEl) {
     }
   }
   let result = parts.join(" ").replace(/\s+/g, " ").trim();
-  if (!result) {
-    result = (descEl.textContent ?? "").trim();
-  }
-  if (!result && descEl.parentNode) {
-    result = (descEl.parentNode.textContent ?? "").trim();
-  }
+  if (!result) result = (descEl.textContent ?? "").trim();
+  if (!result && descEl.parentNode) result = (descEl.parentNode.textContent ?? "").trim();
   return result;
 }
 
@@ -157,7 +159,7 @@ function parseNoteDate(dateEl) {
   const published = text.match(/发布于\s*(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (published) {
     const [, y, m, d] = published;
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T12:00:00.000Z`;
+    return new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T12:00:00.000Z`);
   }
   const edited = text.match(/编辑于\s*(\d{1,2})-(\d{1,2})/);
   if (edited) {
@@ -167,179 +169,93 @@ function parseNoteDate(dateEl) {
     const day = parseInt(d, 10);
     const built = new Date(year, month - 1, day);
     if (built > now) year -= 1;
-    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T12:00:00.000Z`;
+    return new Date(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T12:00:00.000Z`);
   }
-  const relativeTime = text.match(/编辑于\s*(\d+)\s*(分钟|小时|天|周|个月)前/);
-  if (relativeTime) {
-    const [, amount, unit] = relativeTime;
+  const relativeMatch = text.match(/(编辑于|发布于)\s*(\d+)\s*(分钟|小时|天|周|个月)前/);
+  if (relativeMatch) {
+    const [, , amount, unit] = relativeMatch;
     const num = parseInt(amount, 10);
-    let ms = 0;
-    if (unit === "分钟") ms = num * 60 * 1000;
-    else if (unit === "小时") ms = num * 60 * 60 * 1000;
-    else if (unit === "天") ms = num * 24 * 60 * 60 * 1000;
-    else if (unit === "周") ms = num * 7 * 24 * 60 * 60 * 1000;
-    else if (unit === "个月") ms = num * 30 * 24 * 60 * 60 * 1000;
-    const date = new Date(now.getTime() - ms);
-    return date.toISOString();
-  }
-  const publishedRelative = text.match(/发布于\s*(\d+)\s*(分钟|小时|天|周|个月)前/);
-  if (publishedRelative) {
-    const [, amount, unit] = publishedRelative;
-    const num = parseInt(amount, 10);
-    let ms = 0;
-    if (unit === "分钟") ms = num * 60 * 1000;
-    else if (unit === "小时") ms = num * 60 * 60 * 1000;
-    else if (unit === "天") ms = num * 24 * 60 * 60 * 1000;
-    else if (unit === "周") ms = num * 7 * 24 * 60 * 60 * 1000;
-    else if (unit === "个月") ms = num * 30 * 24 * 60 * 60 * 1000;
-    const date = new Date(now.getTime() - ms);
-    return date.toISOString();
+    const msMap = { 分钟: 60_000, 小时: 3_600_000, 天: 86_400_000, 周: 604_800_000, 个月: 2_592_000_000 };
+    return new Date(now.getTime() - (num * (msMap[unit] ?? 0)));
   }
   return undefined;
 }
 
 
-function extractor(html, _url) {
+function extractDetailHtml(html) {
   const root = parse(html);
+  // 作者
   let authorEl = null;
   const authorSelectors = [
     ".author .info a.name .username",
-    ".author .author-wrapper .info a.name .username",
     ".info a.name .username",
     ".info .username",
     "a.name .username",
     ".author-container .username",
-    ".interaction-container .username",
-    ".author-wrapper .username",
     ".author .username",
   ];
-  for (const selector of authorSelectors) {
-    authorEl = root.querySelector(selector);
+  for (const sel of authorSelectors) {
+    authorEl = root.querySelector(sel);
     if (authorEl) break;
   }
   if (!authorEl) {
-    const authorContainers = root.querySelectorAll(".author, .author-container, .interaction-container");
-    for (const container of authorContainers) {
-      const nameLink = container.querySelector("a.name");
-      if (nameLink) {
-        const username = nameLink.querySelector(".username");
-        if (username) {
-          authorEl = username;
-          break;
-        }
-      }
-      const username = container.querySelector(".username");
-      if (username) {
-        authorEl = username;
-        break;
-      }
+    const containers = root.querySelectorAll(".author, .author-container, .interaction-container, .info");
+    for (const c of containers) {
+      const u = c.querySelector("a.name .username") ?? c.querySelector(".username");
+      if (u) { authorEl = u; break; }
     }
   }
   if (!authorEl) {
-    const infoContainers = root.querySelectorAll(".info");
-    for (const container of infoContainers) {
-      const nameLink = container.querySelector("a.name");
-      if (nameLink) {
-        const username = nameLink.querySelector(".username");
-        if (username) {
-          authorEl = username;
-          break;
+    for (const u of root.querySelectorAll(".username")) {
+      let p = u.parentNode ?? null;
+      for (let i = 0; i < 5 && p; i++) {
+        const cls = p.getAttribute?.("class") || "";
+        if (typeof cls === "string" && (cls.includes("name") || cls.includes("info") || cls.includes("author"))) {
+          authorEl = u; break;
         }
-      }
-    }
-  }
-  if (!authorEl) {
-    const nameLinks = root.querySelectorAll("a.name");
-    for (const link of nameLinks) {
-      const username = link.querySelector(".username");
-      if (username) {
-        authorEl = username;
-        break;
-      }
-    }
-  }
-  if (!authorEl) {
-    const allUsernames = root.querySelectorAll(".username");
-    for (const el of allUsernames) {
-      let parent = el.parentNode ?? null;
-      for (let i = 0; i < 5 && parent; i++) {
-        const className = parent.getAttribute?.("class") || "";
-        if (typeof className === "string" && (className.includes("name") || className.includes("info") || className.includes("author"))) {
-          authorEl = el;
-          break;
-        }
-        if (parent.classList?.contains("name") || parent.classList?.contains("info") || parent.classList?.contains("author")) {
-          authorEl = el;
-          break;
-        }
-        parent = parent.parentNode ?? null;
+        p = p.parentNode ?? null;
       }
       if (authorEl) break;
     }
   }
   const author = (authorEl?.textContent ?? "").trim() || undefined;
-  let titleEl = root.querySelector("#detail-title");
-  if (!titleEl) {
-    titleEl = root.querySelector(".note-content .title") ?? root.querySelector("h1.title") ?? root.querySelector(".title");
-  }
+  // 标题
+  const titleEl = root.querySelector("#detail-title") ?? root.querySelector(".note-content .title") ?? root.querySelector("h1.title");
   const title = (titleEl?.textContent ?? "").trim() || undefined;
+  // 正文
   const descEl = root.querySelector("#detail-desc") ?? root.querySelector(".note-content .desc") ?? root.querySelector(".desc");
   const descText = descToMarkdown(descEl);
   const imgUrls = collectNoteImages(root);
-  const imgMd = imgUrls.length > 0 ? imgUrls.map((url) => `\n\n![](${url})`).join("") : "";
-  let content = (descText + imgMd).trim();
-  if (!content && title) {
-    content = title;
-  }
-  if (!content && imgUrls.length > 0) {
-    content = imgMd.trim();
-  }
-  if (!content) {
-    content = undefined;
-  }
-  let dateEl = root.querySelector(".bottom-container span.date");
+  const imgMd = imgUrls.length > 0 ? imgUrls.map((u) => `\n\n![](${u})`).join("") : "";
+  let content = (descText + imgMd).trim() || title || imgMd.trim() || undefined;
+  // 发布时间
+  let dateEl = root.querySelector(".bottom-container span.date") ?? root.querySelector(".bottom-container .date");
   if (!dateEl) {
-    dateEl = root.querySelector(".bottom-container .date") ?? root.querySelector(".note-content .date") ?? root.querySelector(".note-detail .date");
-  }
-  if (!dateEl) {
-    const allDates = root.querySelectorAll("span.date, .date");
-    for (const el of allDates) {
-      const t = (el.textContent ?? "").trim();
-      if (/编辑于|发布于/.test(t)) {
-        dateEl = el;
-        break;
-      }
-    }
-  }
-  if (!dateEl) {
-    const bottomContainer = root.querySelector(".bottom-container");
-    if (bottomContainer) {
-      const dateInBottom = bottomContainer.querySelector("span[class*='date'], .date, [class*='date']");
-      if (dateInBottom) dateEl = dateInBottom;
-    }
-  }
-  if (!dateEl) {
-    const noteContent = root.querySelector(".note-content");
-    if (noteContent) {
-      const dateInContent = noteContent.querySelector("span.date, .date, [class*='date']");
-      if (dateInContent) {
-        const t = (dateInContent.textContent ?? "").trim();
-        if (/编辑于|发布于/.test(t)) dateEl = dateInContent;
-      }
-    }
-  }
-  if (!dateEl) {
-    const allSpans = root.querySelectorAll("span");
-    for (const span of allSpans) {
-      const t = (span.textContent ?? "").trim();
-      if (/编辑于\s*(\d{1,2}-\d{1,2}|\d+\s*(分钟|小时|天|周|个月)前)|发布于\s*(\d{4}-\d{1,2}-\d{1,2}|\d+\s*(分钟|小时|天|周|个月)前)/.test(t)) {
-        dateEl = span;
-        break;
-      }
+    for (const span of root.querySelectorAll("span")) {
+      if (/(编辑于|发布于)/.test(span.textContent ?? "")) { dateEl = span; break; }
     }
   }
   const pubDate = parseNoteDate(dateEl);
   return { author, title, content, pubDate };
+}
+
+
+async function fetchItems(sourceId, ctx) {
+  const { html, finalUrl } = await ctx.fetchHtml(sourceId);
+  return parseListHtml(html, finalUrl);
+}
+
+
+async function enrichItem(item, ctx) {
+  const { html } = await ctx.fetchHtml(item.link);
+  const detail = extractDetailHtml(html);
+  return {
+    ...item,
+    author: detail.author ?? item.author,
+    title: detail.title ?? item.title,
+    contentHtml: detail.content ? `<p>${detail.content.replace(/\n\n/g, "</p><p>")}</p>` : undefined,
+    pubDate: detail.pubDate ?? item.pubDate,
+  };
 }
 
 
@@ -353,17 +269,14 @@ async function checkAuth(page, _url) {
 }
 
 
-const site = {
+export default {
   id: "xiaohongshu",
   listUrlPattern: "https://xiaohongshu.com/user/profile/{userId}",
-  detailUrlPattern: "https://xiaohongshu.com/explore/{noteId}",
-  parser,
-  extractor,
+  fetchItems,
+  enrichItem,
   checkAuth,
   loginUrl: "https://www.xiaohongshu.com/",
   domain: "xiaohongshu.com",
   loginTimeoutMs: 30 * 1000,
   pollIntervalMs: 2000,
 };
-
-export default site;

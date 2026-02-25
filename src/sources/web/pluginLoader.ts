@@ -10,15 +10,14 @@ import { BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR } from "../../config/paths.js";
 const PLUGIN_EXTENSIONS = [".rssany.js", ".rssany.ts"];
 
 
-/** 判断对象是否为有效的 Site 实现（插件需提供 parser 与 extractor） */
+/** 判断对象是否为有效的 Site 实现（需提供 id、listUrlPattern 和 fetchItems） */
 function isValidSite(obj: unknown): obj is Site {
   if (obj == null || typeof obj !== "object") return false;
   const s = obj as Record<string, unknown>;
   return (
     typeof s.id === "string" &&
     (typeof s.listUrlPattern === "string" || s.listUrlPattern instanceof RegExp) &&
-    (typeof s.parser === "function" || s.parser == null) &&
-    (typeof s.extractor === "function" || s.extractor == null)
+    typeof s.fetchItems === "function"
   );
 }
 
@@ -44,7 +43,7 @@ async function loadPluginsFromDir(dir: string, label: string): Promise<Site[]> {
       if (isValidSite(site)) {
         plugins.push(site);
       } else {
-        console.warn(`[Plugin][${label}] ${name} 未实现 Site 接口，已跳过`);
+        console.warn(`[Plugin][${label}] ${name} 未实现 Site 接口（需要 id、listUrlPattern、fetchItems），已跳过`);
       }
     } catch (err) {
       console.warn(`[Plugin][${label}] 加载 ${name} 失败:`, err);

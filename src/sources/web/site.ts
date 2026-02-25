@@ -1,13 +1,60 @@
-// 站点抽象接口：声明 URL 形态、parser、extractor、auth（WebSource 专用）
+// 站点抽象接口：声明 URL 模式及 fetchItems / enrichItem 能力（WebSource 专用）
 
-import type { BrowserContext } from "puppeteer-core";
-import type { CustomParserFn } from "./parser/parser.js";
-import type { CustomExtractorFn } from "./extractor/types.js";
 import type { AuthFlow, CheckAuthFn } from "../../auth/index.js";
 import type { RefreshInterval } from "../../utils/refreshInterval.js";
+import type { FeedItem } from "../../types/feedItem.js";
 
 
-/** 将 listUrlPattern 转为 RegExp：{xxx} → [^/]+，其余转义，末尾允许 ?query */
+/** 框架注入给插件的调用上下文，提供浏览器抓取工具 */
+export interface SiteContext {
+  /** 缓存目录 */
+  cacheDir?: string;
+  /** 是否无头浏览器 */
+  headless?: boolean;
+  /** 代理地址 */
+  proxy?: string;
+  /**
+   * 用浏览器抓取指定 URL，返回渲染后的 HTML。
+   * 插件需要访问网页时调用此方法，框架负责浏览器管理与 cookie 注入。
+   */
+  fetchHtml(url: string, opts?: { waitMs?: number }): Promise<{ html: string; finalUrl: string; status: number }>;
+}
+
+
+/** 站点抽象接口：声明该站点支持的 URL 模式及数据获取能力 */
+export interface Site {
+  /** 站点标识，如 "xiaohongshu"、"lingowhale" */
+  readonly id: string;
+  /** 列表页 URL 匹配模式，{placeholder} 匹配路径段 */
+  readonly listUrlPattern: string | RegExp;
+  /** 条目有效时间窗口；不填默认 1day */
+  readonly refreshInterval?: RefreshInterval;
+  /** 代理地址；不填则使用 env HTTP_PROXY */
+  readonly proxy?: string;
+  /**
+   * 核心能力：给定 sourceId，返回条目列表。
+   * 插件自行决定如何获取数据（调用 ctx.fetchHtml、直接 fetch API 等均可）。
+   */
+  fetchItems(sourceId: string, ctx: SiteContext): Promise<FeedItem[]>;
+  /**
+   * 可选：对单条目异步补全正文（后台任务）。
+   * 返回携带 contentHtml 的完整条目。
+   */
+  enrichItem?(item: FeedItem, ctx: SiteContext): Promise<FeedItem>;
+  /** 认证：检查是否已登录 */
+  checkAuth?: CheckAuthFn | null;
+  /** 认证：登录页 URL */
+  loginUrl?: string | null;
+  /** 认证：域名，cookies 保存在 domains/{domain}.json */
+  domain?: string | null;
+  /** 认证：等待登录超时毫秒，默认 300000 */
+  loginTimeoutMs?: number | null;
+  /** 认证：轮询 checkAuth 间隔毫秒，默认 2000 */
+  pollIntervalMs?: number | null;
+}
+
+
+/** 将字符串 URL 模式转为正则：{xxx} → [^/]+，末尾允许 ?query */
 function patternToRegex(pattern: string | RegExp): RegExp {
   if (pattern instanceof RegExp) return pattern;
   const pathOnly = pattern.split("?")[0];
@@ -17,51 +64,6 @@ function patternToRegex(pattern: string | RegExp): RegExp {
     .replace(/[.*+?^${}()|[\]\\]/g, (c) => "\\" + c)
     .replace(new RegExp(pl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "[^/]+");
   return new RegExp("^" + s + "(\\?.*)?$");
-}
-
-
-/** 站点抽象接口：负责声明该站点支持的 URL 形态及解析/提取/认证能力 */
-export interface Site {
-  /** 站点标识，如 "xiaohongshu" */
-  readonly id: string;
-  /** 列表页 URL 模式，{placeholder} 匹配路径段，如 "https://example.com/user/{id}" */
-  readonly listUrlPattern: string | RegExp;
-  /** 详情页 URL 模式，用于 /extractor 匹配；不填则按 domain 匹配，如 "https://www.xiaohongshu.com/explore/{noteId}" */
-  readonly detailUrlPattern?: string | RegExp | null;
-  /** 条目有效时间窗口：该站点内容的刷新频率，作用于缓存键、DB 查询和调度间隔；不填默认 1day */
-  readonly refreshInterval?: RefreshInterval;
-  /** 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080；不填则使用 env HTTP_PROXY */
-  readonly proxy?: string;
-  /** 列表页解析器，不填则使用 LLM 解析 */
-  readonly parser?: CustomParserFn | null;
-  /** 详情页正文提取器，不填则使用 LLM 提取 */
-  readonly extractor?: CustomExtractorFn | null;
-  /** 认证：检查是否已登录；(page, url) => Promise<boolean>，返回 false 表示需登录 */
-  checkAuth?: CheckAuthFn | null;
-  /** 认证：登录页 URL，checkAuth 失败时打开此页让用户手动登录 */
-  loginUrl?: string | null;
-  /** 认证：域名，cookies 保存在 domains/{domain}.json，如 "xiaohongshu.com" */
-  domain?: string | null;
-  /** 认证：等待登录超时毫秒，默认 300000 */
-  loginTimeoutMs?: number | null;
-  /** 认证：轮询 checkAuth 间隔毫秒，默认 2000 */
-  pollIntervalMs?: number | null;
-  /** 浏览器上下文配置函数：在创建浏览器上下文时调用，可用于设置 cookies、localStorage 等；(context) => Promise<void> */
-  browserContext?: ((context: BrowserContext) => Promise<void>) | null;
-  /** 页面 load 后额外等待时间（毫秒），用于等待站点前端异步渲染完成；默认 2000 */
-  waitAfterLoadMs?: number | null;
-}
-
-
-/** 根据 listUrlPattern 自动计算 URL 匹配具体度（不匹配返回 -1），数值越大越具体；字符串模式加 1000 偏移量确保永远优先于正则模式；正则模式用 source.length 区分宽泛与具体 */
-export function computeSpecificity(site: Site, url: string): number {
-  if (!matchesListUrl(site, url)) return -1;
-  const p = site.listUrlPattern;
-  if (typeof p === "string") {
-    const pathOnly = p.split("?")[0];
-    return 1000 + pathOnly.split("/").filter(Boolean).length;
-  }
-  return p.source.length;
 }
 
 
@@ -88,28 +90,15 @@ export function matchesListUrl(site: Site, url: string): boolean {
 }
 
 
-/** 判断 URL 是否匹配站点的 detailUrlPattern（未配置则返回 false） */
-export function matchesDetailUrl(site: Site, url: string): boolean {
-  const p = site.detailUrlPattern;
-  if (p == null || p === "") return false;
-  try {
-    return patternToRegex(p).test(url);
-  } catch {
-    return false;
-  }
-}
-
-
-/** 根据 detailUrlPattern 计算匹配具体度（不匹配或未配置返回 -1） */
-export function computeDetailSpecificity(site: Site, url: string): number {
-  if (!matchesDetailUrl(site, url)) return -1;
-  const p = site.detailUrlPattern;
-  if (p == null) return -1;
+/** 根据 listUrlPattern 自动计算 URL 匹配具体度（不匹配返回 -1） */
+export function computeSpecificity(site: Site, url: string): number {
+  if (!matchesListUrl(site, url)) return -1;
+  const p = site.listUrlPattern;
   if (typeof p === "string") {
     const pathOnly = p.split("?")[0];
-    return pathOnly.split("/").filter(Boolean).length;
+    return 1000 + pathOnly.split("/").filter(Boolean).length;
   }
-  return 1;
+  return p.source.length;
 }
 
 
@@ -120,27 +109,4 @@ export function getSiteByUrl(url: string, sites: Site[]): Site | undefined {
     .filter((x) => x.score >= 0)
     .sort((a, b) => b.score - a.score);
   return matched[0]?.site;
-}
-
-
-/** 根据详情页 URL 查找「有 extractor 且 detailUrlPattern 或 domain 匹配」的站点；优先 detailUrlPattern，否则按 domain 兜底 */
-export function getSiteForExtraction(url: string, sites: Site[]): Site | undefined {
-  const withExtractor = sites.filter((s) => s.extractor != null && s.extractor !== undefined);
-  const byDetail = withExtractor
-    .map((s) => ({ site: s, score: computeDetailSpecificity(s, url) }))
-    .filter((x) => x.score >= 0)
-    .sort((a, b) => b.score - a.score);
-  if (byDetail.length > 0) return byDetail[0].site;
-  let hostname: string;
-  try {
-    hostname = new URL(url).hostname;
-  } catch {
-    return undefined;
-  }
-  for (const site of withExtractor) {
-    const d = site.domain?.trim();
-    if (!d) continue;
-    if (hostname === d || hostname.endsWith("." + d) || hostname === "www." + d || hostname.replace(/^www\./, "") === d) return site;
-  }
-  return undefined;
 }

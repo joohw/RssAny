@@ -1,14 +1,35 @@
-// WebSource：将 Site 插件包装为 Source 接口，封装 fetch→parse→extract 三步流水线
+// WebSource：将 Site 插件包装为 Source 接口，注入 SiteContext 工具
 
-import { cacheKey } from "../../cacher/index.js";
-import { fetchHtml, preCheckAuth } from "./fetcher/index.js";
+import { fetchHtml as fetchHtmlFn, preCheckAuth } from "./fetcher/index.js";
 import { parseHtml } from "./parser/index.js";
-import { extractItem } from "./extractor/index.js";
-import { toAuthFlow, getSiteForExtraction, computeSpecificity } from "./site.js";
+import { toAuthFlow, getSiteByUrl } from "./site.js";
 import { AuthRequiredError } from "../../auth/index.js";
-import type { Site } from "./site.js";
+import type { Site, SiteContext } from "./site.js";
 import type { Source, SourceContext } from "../types.js";
 import type { FeedItem } from "../../types/feedItem.js";
+
+
+/** 从 SourceContext + Site 构建注入了工具的 SiteContext */
+export function buildSiteContext(site: Site, ctx: SourceContext): SiteContext {
+  const proxy = ctx.proxy ?? site.proxy;
+  const authFlow = toAuthFlow(site);
+  return {
+    cacheDir: ctx.cacheDir,
+    headless: ctx.headless,
+    proxy,
+    async fetchHtml(url, opts) {
+      const res = await fetchHtmlFn(url, {
+        cacheDir: ctx.cacheDir,
+        useCache: false,
+        authFlow,
+        headless: ctx.headless,
+        proxy,
+        waitAfterLoadMs: opts?.waitMs,
+      });
+      return { html: res.body, finalUrl: res.finalUrl ?? url, status: res.status };
+    },
+  };
+}
 
 
 /** 将 Site 插件包装为统一 Source 接口 */
@@ -27,51 +48,42 @@ export function createWebSource(site: Site): Source {
         }
       : undefined,
     async fetchItems(sourceId: string, ctx: SourceContext): Promise<FeedItem[]> {
-      const proxy = ctx.proxy ?? site.proxy;
-      const listRes = await fetchHtml(sourceId, {
-        cacheDir: ctx.cacheDir,
-        useCache: false,
-        authFlow,
-        headless: ctx.headless,
-        proxy,
-        browserContext: site.browserContext ?? undefined,
-        waitAfterLoadMs: site.waitAfterLoadMs ?? undefined,
-      });
-      if (listRes.status !== 200) {
-        throw new Error(`抓取失败: HTTP ${listRes.status} ${listRes.statusText}`);
-      }
-      const parsed = await parseHtml(listRes.body, {
-        url: listRes.finalUrl ?? sourceId,
-        customParser: site.parser ?? undefined,
-        cacheDir: ctx.cacheDir,
-        useCache: false,
-        cacheKey: cacheKey(listRes.finalUrl ?? sourceId, "forever"),
-      });
-      return parsed.items;
+      return site.fetchItems(sourceId, buildSiteContext(site, ctx));
     },
-    enrichItem: site.extractor != null
+    enrichItem: site.enrichItem
       ? async (item: FeedItem, ctx: SourceContext): Promise<FeedItem> => {
-          return extractItem(
-            item,
-            { cacheDir: ctx.cacheDir, useCache: false, customExtractor: site.extractor! },
-            { cacheDir: ctx.cacheDir, headless: ctx.headless, proxy: ctx.proxy ?? site.proxy, browserContext: site.browserContext ?? undefined },
-          );
+          return site.enrichItem!(item, buildSiteContext(site, ctx));
         }
       : undefined,
   };
 }
 
 
-/** 通用 WebSource：兜底匹配所有 http/https URL，使用 LLM 解析，无正文提取 */
-export const genericWebSource: Source = createWebSource({
+/** 通用 WebSource：兜底匹配所有 http/https URL，使用浏览器抓取 + LLM 解析 */
+export const genericWebSource: Source = {
   id: "generic",
-  listUrlPattern: /^https?:\/\//,
-  parser: undefined,
-  extractor: undefined,
-});
+  pattern: /^https?:\/\//,
+  async fetchItems(sourceId: string, ctx: SourceContext): Promise<FeedItem[]> {
+    const res = await fetchHtmlFn(sourceId, {
+      cacheDir: ctx.cacheDir,
+      useCache: false,
+      headless: ctx.headless,
+      proxy: ctx.proxy,
+    });
+    if (res.status !== 200) {
+      throw new Error(`抓取失败: HTTP ${res.status} ${res.statusText}`);
+    }
+    const parsed = await parseHtml(res.body, {
+      url: res.finalUrl ?? sourceId,
+      cacheDir: ctx.cacheDir,
+      useCache: false,
+    });
+    return parsed.items;
+  },
+};
 
 
-/** 保存已加载的 Site 对象（供 auth 路由、extractor 路由直接访问底层 Site） */
+/** 保存已加载的 Site 对象（供 auth 路由、调试路由直接访问） */
 const loadedSites: Site[] = [];
 
 
@@ -94,22 +106,12 @@ export function getPluginSites(): Site[] {
 }
 
 
-/** 根据详情页 URL 查找有 extractor 且匹配的 Site（用于 /extractor 调试路由） */
-export function getSiteForDetail(url: string): Site | undefined {
-  return getSiteForExtraction(url, loadedSites);
-}
-
-
-/** 根据 URL 获取最具体匹配的 Site（用于 /parse 调试路由） */
+/** 根据 URL 获取最具体匹配的 Site（用于调试路由） */
 export function getBestSite(url: string): Site | undefined {
-  const matched = loadedSites
-    .map((s) => ({ site: s, score: computeSpecificity(s, url) }))
-    .filter((x) => x.score >= 0)
-    .sort((a, b) => b.score - a.score);
-  return matched[0]?.site;
+  return getSiteByUrl(url, loadedSites);
 }
 
 
-export type { Site } from "./site.js";
+export type { Site, SiteContext } from "./site.js";
 export { toAuthFlow, computeSpecificity } from "./site.js";
 export { loadPlugins } from "./pluginLoader.js";

@@ -1,6 +1,7 @@
-// X (Twitter) 站点插件：用户主页列表解析、认证流程
+// X (Twitter) 站点插件：用户主页列表抓取与解析、认证流程
 
 import { parse } from "node-html-parser";
+import { createHash } from "node:crypto";
 
 
 const X_ORIGIN = "https://x.com";
@@ -80,17 +81,9 @@ function parseArticles(root, origin) {
     seen.add(statusPath);
     const link = new URL(statusPath, origin).href;
     const text = extractTweetText(article);
-    const title = text ? "" : "推文";
     const author = extractAuthor(article, statusPath);
     const pubDate = article.querySelector("time[datetime]")?.getAttribute("datetime") || undefined;
-    entries.push({
-      title,
-      link,
-      description: text || title,
-      content: "",
-      author,
-      published: pubDate,
-    });
+    entries.push({ link, text, author, pubDate });
   }
   return entries;
 }
@@ -108,24 +101,31 @@ function extractEntriesFromJson(data, origin) {
     const statusPath = `/${m[1]}/status/${m[2]}`;
     if (seen.has(statusPath)) continue;
     seen.add(statusPath);
-    entries.push({
-      title: "",
-      link: new URL(statusPath, origin).href,
-      description: "推文",
-      content: "",
-      author: m[1],
-    });
+    entries.push({ link: new URL(statusPath, origin).href, text: "", author: m[1], pubDate: undefined });
   }
   return entries;
 }
 
 
-function parser(html, url) {
+function entriesToFeedItems(entries) {
+  return entries.map(({ link, text, author, pubDate }) => ({
+    guid: createHash("sha256").update(link).digest("hex"),
+    title: text || undefined,
+    link,
+    pubDate: pubDate ? new Date(pubDate) : new Date(),
+    author,
+    summary: text || undefined,
+  }));
+}
+
+
+async function fetchItems(sourceId, ctx) {
+  const { html, finalUrl } = await ctx.fetchHtml(sourceId, { waitMs: 6000 });
   const root = parse(html);
-  const origin = getOrigin(url);
+  const origin = getOrigin(finalUrl);
 
   let entries = parseArticles(root, origin);
-  if (entries.length > 0) return entries;
+  if (entries.length > 0) return entriesToFeedItems(entries);
 
   const scripts = root.querySelectorAll('script[type="application/json"]');
   for (const script of scripts) {
@@ -140,23 +140,22 @@ function parser(html, url) {
       // ignore broken JSON blocks
     }
   }
-  if (entries.length > 0) return entries;
+  if (entries.length > 0) return entriesToFeedItems(entries);
 
   const bodyText = normalizeText(root.textContent).toLowerCase();
   const isErrorPage = bodyText.includes("something went wrong") || bodyText.includes("try again");
   const metaTitle = normalizeText(root.querySelector("title")?.textContent);
   const metaDesc = normalizeText(root.querySelector('meta[name="description"]')?.getAttribute("content"));
   return [{
+    guid: createHash("sha256").update(sourceId).digest("hex"),
     title: isErrorPage ? "X 页面暂不可用（可能被风控或需登录）" : (metaTitle || "X (Twitter)"),
-    link: url,
-    description: metaDesc || metaTitle || (isErrorPage ? "X 返回错误页，请稍后重试或切换为有头模式并确认登录态" : "未解析到推文条目"),
-    content: "",
-    author: undefined,
+    link: sourceId,
+    pubDate: new Date(),
+    summary: metaDesc || metaTitle || (isErrorPage ? "X 返回错误页，请稍后重试或切换为有头模式并确认登录态" : "未解析到推文条目"),
   }];
 }
 
 
-// 检查是否已登录
 async function checkAuth(page, _url) {
   try {
     const currentUrl = page.url();
@@ -199,10 +198,7 @@ async function checkAuth(page, _url) {
 export default {
   id: "x",
   listUrlPattern: "https://x.com/{username}",
-  detailUrlPattern: "https://x.com/{username}/status/{tweetId}",
-  // X 时间线是异步渲染，给它更长的首屏等待，避免只拿到壳页面元信息
-  waitAfterLoadMs: 6000,
-  parser,
+  fetchItems,
   checkAuth,
   loginUrl: "https://x.com",
   domain: "x.com",
