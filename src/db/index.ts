@@ -98,6 +98,28 @@ export async function updateItemContent(item: FeedItem): Promise<void> {
 }
 
 
+/** 跨多信源分页查询条目，按发布时间降序，供首页信息流分页使用；查询 limit+1 条以判断是否还有下一页 */
+export async function queryFeedItems(
+  sourceUrls: string[],
+  limit: number,
+  offset: number,
+): Promise<{ items: DbItem[]; hasMore: boolean }> {
+  if (sourceUrls.length === 0) return { items: [], hasMore: false };
+  const db = await getDb();
+  const placeholders = sourceUrls.map((_, i) => `@u${i}`).join(", ");
+  const params: Record<string, unknown> = { lim: limit + 1, off: offset };
+  sourceUrls.forEach((url, i) => { params[`u${i}`] = url; });
+  const rows = db.prepare(`
+    SELECT * FROM items
+    WHERE source_url IN (${placeholders})
+    ORDER BY COALESCE(pub_date, fetched_at) DESC
+    LIMIT @lim OFFSET @off
+  `).all(params) as DbItem[];
+  const hasMore = rows.length > limit;
+  return { items: hasMore ? rows.slice(0, limit) : rows, hasMore };
+}
+
+
 /** 按单个信源 URL 查询最新条目，按发布时间降序，供 /api/feed 使用；since 限制只返回该时间点之后的条目 */
 export async function queryItemsBySource(sourceUrl: string, limit = 50, since?: Date): Promise<DbItem[]> {
   const db = await getDb();

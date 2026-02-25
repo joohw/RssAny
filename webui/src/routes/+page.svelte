@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
 
-  interface DbItem {
+  interface ApiItem {
     url: string;
-    title: string;
-    author?: string;
-    summary?: string;
-    pub_date?: string;
+    title: string | null;
+    author?: string | null;
+    summary?: string | null;
+    pub_date?: string | null;
     fetched_at?: string;
+    sub_id: string;
+    sub_title: string;
   }
 
   interface FeedItem {
@@ -20,29 +22,25 @@
     _subTitle: string;
   }
 
-  interface Subscription {
-    id: string;
-    title?: string;
-    items: DbItem[];
-  }
+  const PAGE_SIZE = 50;
 
   let allItems: FeedItem[] = [];
   let activeFilter = 'all';
   let subscriptions: { id: string; title: string }[] = [];
-  let loading = false;
+  let loading = false;      // 首次 / 刷新加载
+  let loadingMore = false;  // 下拉加载更多
   let loadError = '';
-  let itemCount = 0;
+  let hasMore = false;
+  let currentOffset = 0;
   let pendingNewCount = 0;
   let showBadge = false;
   let badgeText = '';
 
+  let sentinel: HTMLElement | null = null;
+  let observer: IntersectionObserver | null = null;
   let esRef: EventSource | null = null;
 
-  function sourceLabel(link?: string): string {
-    if (!link) return '';
-    const stripped = link.replace(/^https?:\/\//, '');
-    return stripped.length > 20 ? stripped.slice(0, 20) : stripped;
-  }
+  $: itemCount = allItems.length;
 
   function relativeTime(dateStr?: string): string {
     if (!dateStr) return '';
@@ -57,49 +55,41 @@
     return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
   }
 
-  function mapDbItem(item: DbItem, subId: string, subTitle: string): FeedItem {
+  function mapApiItem(item: ApiItem): FeedItem {
     return {
       link: item.url,
-      title: item.title,
-      author: item.author,
-      summary: item.summary,
+      title: item.title || '(无标题)',
+      author: item.author ?? undefined,
+      summary: item.summary ?? undefined,
       pubDate: item.pub_date || item.fetched_at,
-      _subId: subId,
-      _subTitle: subTitle,
+      _subId: item.sub_id,
+      _subTitle: item.sub_title,
     };
   }
 
-  $: filteredItems = activeFilter === 'all'
-    ? allItems
-    : allItems.filter((it) => it._subId === activeFilter);
+  function buildUrl(offset: number): string {
+    const sub = activeFilter !== 'all' ? `&sub=${encodeURIComponent(activeFilter)}` : '';
+    return `/api/feed?limit=${PAGE_SIZE}&offset=${offset}${sub}`;
+  }
 
-  $: itemCount = filteredItems.length;
-
+  /** 初始加载 / 刷新：重置列表，从第一页开始 */
   async function loadFeed(silent = false) {
-    if (!silent) {
-      loading = true;
-      loadError = '';
-    }
+    if (!silent) { loading = true; loadError = ''; }
     try {
-      const res = await fetch('/api/feed');
-      const data: { subscriptions: Subscription[] } = await res.json();
-      if (!Array.isArray(data.subscriptions) || data.subscriptions.length === 0) {
-        subscriptions = [];
+      const res = await fetch(buildUrl(0));
+      const data: { subscriptions: { id: string; title?: string }[]; items: ApiItem[]; hasMore: boolean } = await res.json();
+      // 仅在第一次或刷新时更新订阅元数据（用于过滤标签）
+      if (Array.isArray(data.subscriptions)) {
+        subscriptions = data.subscriptions.map((s) => ({ id: s.id, title: s.title || s.id }));
+      }
+      if (subscriptions.length === 0) {
         allItems = [];
         loadError = '暂无订阅，请在 <code>subscriptions.json</code> 中配置';
         return;
       }
-      subscriptions = data.subscriptions.map((s) => ({ id: s.id, title: s.title || s.id }));
-      allItems = [];
-      for (const sub of data.subscriptions) {
-        for (const item of sub.items || []) {
-          allItems.push(mapDbItem(item, sub.id, sub.title || sub.id));
-        }
-      }
-      allItems.sort((a, b) =>
-        new Date(b.pubDate || 0).getTime() - new Date(a.pubDate || 0).getTime()
-      );
-      allItems = allItems; // trigger reactivity
+      allItems = (data.items || []).map(mapApiItem);
+      hasMore = !!data.hasMore;
+      currentOffset = allItems.length;
       hideBadge();
     } catch (err) {
       if (!silent) loadError = '加载失败: ' + (err instanceof Error ? err.message : String(err));
@@ -108,8 +98,30 @@
     }
   }
 
-  function setFilter(f: string) {
+  /** 滚动到底部时追加下一页 */
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    loadingMore = true;
+    try {
+      const res = await fetch(buildUrl(currentOffset));
+      const data: { items: ApiItem[]; hasMore: boolean } = await res.json();
+      const newItems = (data.items || []).map(mapApiItem);
+      allItems = [...allItems, ...newItems];
+      hasMore = !!data.hasMore;
+      currentOffset += newItems.length;
+    } catch { /* 静默失败，用户可再次滚动触发 */ } finally {
+      loadingMore = false;
+    }
+  }
+
+  /** 切换订阅过滤：服务端过滤，重置分页 */
+  async function setFilter(f: string) {
+    if (activeFilter === f) return;
     activeFilter = f;
+    allItems = [];
+    hasMore = false;
+    currentOffset = 0;
+    await loadFeed(false);
   }
 
   function showBadgeFn(count: number) {
@@ -118,14 +130,8 @@
     showBadge = true;
   }
 
-  function hideBadge() {
-    pendingNewCount = 0;
-    showBadge = false;
-  }
-
-  function dismissBadge() {
-    loadFeed(true);
-  }
+  function hideBadge() { pendingNewCount = 0; showBadge = false; }
+  function dismissBadge() { loadFeed(true); }
 
   function connectSSE() {
     const es = new EventSource('/api/events');
@@ -134,26 +140,25 @@
       try {
         const msg = JSON.parse(e.data);
         if (msg.type !== 'feed:updated') return;
-        if (allItems.length === 0) {
-          loadFeed(true);
-        } else {
-          showBadgeFn(msg.newCount);
-        }
+        if (allItems.length === 0) { loadFeed(true); } else { showBadgeFn(msg.newCount); }
       } catch { /* ignore */ }
     };
-    es.onerror = () => {
-      es.close();
-      esRef = null;
-      setTimeout(connectSSE, 5000);
-    };
+    es.onerror = () => { es.close(); esRef = null; setTimeout(connectSSE, 5000); };
   }
 
   onMount(() => {
     loadFeed(false);
     connectSSE();
+    // IntersectionObserver 监听哨兵元素，触底时自动加载下一页
+    observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting && hasMore && !loadingMore) loadMore(); },
+      { rootMargin: '200px' }
+    );
+    if (sentinel) observer.observe(sentinel);
   });
 
   onDestroy(() => {
+    observer?.disconnect();
     esRef?.close();
   });
 </script>
@@ -206,16 +211,16 @@
         <div class="state">加载中…</div>
       {:else if loadError && allItems.length === 0}
         <div class="state">{@html loadError}</div>
-      {:else if filteredItems.length === 0}
+      {:else if allItems.length === 0}
         <div class="state">
           {activeFilter === 'all'
             ? '暂无内容，请先在 <code>subscriptions.json</code> 中配置订阅'
             : '该订阅暂无内容'}
         </div>
       {:else}
-        {#each filteredItems as item (item.link)}
+        {#each allItems as item (item.link)}
           <div class="item">
-            <div class="item-sub">{sourceLabel(item.link)}</div>
+            <div class="item-sub">{item._subTitle}</div>
             <a class="item-title" href={item.link} target="_blank" rel="noopener">{item.title}</a>
             {#if item.summary}
               <p class="item-summary">{item.summary}</p>
@@ -229,6 +234,13 @@
             </div>
           </div>
         {/each}
+        <!-- 哨兵元素：进入视口时触发加载下一页 -->
+        <div bind:this={sentinel}></div>
+        {#if loadingMore}
+          <div class="load-more-state">加载更多…</div>
+        {:else if !hasMore && allItems.length > 0}
+          <div class="load-more-state">已加载全部 {itemCount} 条</div>
+        {/if}
       {/if}
     </div>
   </div>
@@ -379,6 +391,12 @@
     color: #aaa;
     font-size: 0.875rem;
     line-height: 1.7;
+  }
+  .load-more-state {
+    padding: 1.25rem;
+    text-align: center;
+    color: #ccc;
+    font-size: 0.8rem;
   }
 
   @media (max-width: 600px) {

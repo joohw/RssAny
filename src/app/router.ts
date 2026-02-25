@@ -17,7 +17,7 @@ import { parseHtml } from "../sources/web/parser/index.js";
 import { fetchHtml, ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sources/web/fetcher/index.js";
 import { getWebSite, getSiteForDetail, getBestSite, getPluginSites, toAuthFlow } from "../sources/web/index.js";
 import { AuthRequiredError, NotFoundError } from "../auth/index.js";
-import { queryItems, queryItemsBySource, getPendingPushItems, markPushed } from "../db/index.js";
+import { queryItems, queryFeedItems, getPendingPushItems, markPushed } from "../db/index.js";
 import { enrichQueue } from "../enrich/index.js";
 import { getAdminToken } from "../config/adminToken.js";
 
@@ -113,29 +113,34 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const result = await queryItems({ sourceUrl, q, limit, offset });
     return c.json(result);
   });
-  // API：从数据库读取所有订阅的条目，纯 DB 查询，不触发任何实时抓取
-  // 注意：不按 refresh 间隔做时间窗口过滤——refresh 仅控制调度频率，不应影响展示范围；
-  // 条目数量由每个订阅的 maxItemsPerSource（默认 50）控制，结果按发布时间降序排列。
+  // API：分页查询首页信息流（纯 DB 查询，不触发实时抓取）
+  // - limit：每页条数，默认 50，最大 200
+  // - offset：分页偏移，默认 0
+  // - sub：订阅 id 过滤，省略则返回全部订阅的条目
+  // - 返回：{ subscriptions（元数据）, items（含 sub_id/sub_title）, hasMore }
+  // 注意：不按 refresh 间隔做时间窗口过滤，refresh 仅控制调度频率，不影响展示范围
   app.get("/api/feed", async (c) => {
+    const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+    const offset = Number(c.req.query("offset") ?? 0);
+    const subFilter = c.req.query("sub") ?? undefined;
     const subs = await getAllSubscriptionConfigs();
-    const results = await Promise.all(
-      subs.map(async (sub) => {
-        const maxPerSource = sub.maxItemsPerSource ?? 50;
-        const itemsPerSource = await Promise.all(
-          sub.sources.map((src) => {
-            // 只按条数限制，不加时间窗口：避免 refresh 较短时历史条目被错误过滤
-            return queryItemsBySource(resolveRef(src), maxPerSource);
-          })
-        );
-        const items = itemsPerSource.flat().sort((a, b) => {
-          const ta = new Date(a.pub_date ?? a.fetched_at).getTime();
-          const tb = new Date(b.pub_date ?? b.fetched_at).getTime();
-          return tb - ta;
-        });
-        return { id: sub.id, title: sub.title, items };
-      })
-    );
-    return c.json({ subscriptions: results });
+    // 订阅元数据（用于过滤标签栏，仅首次请求 offset=0 时有意义）
+    const subscriptionsMeta = subs.map((s) => ({ id: s.id, title: s.title }));
+    // 按 sub 过滤目标订阅，构建 sourceUrl → { subId, subTitle } 映射
+    const targetSubs = subFilter ? subs.filter((s) => s.id === subFilter) : subs;
+    const sourceMap = new Map<string, { subId: string; subTitle: string }>();
+    for (const sub of targetSubs) {
+      for (const src of sub.sources) {
+        sourceMap.set(resolveRef(src), { subId: sub.id, subTitle: sub.title ?? sub.id });
+      }
+    }
+    const { items: dbItems, hasMore } = await queryFeedItems([...sourceMap.keys()], limit, offset);
+    const items = dbItems.map((item) => ({
+      ...item,
+      sub_id: sourceMap.get(item.source_url)?.subId ?? "",
+      sub_title: sourceMap.get(item.source_url)?.subTitle ?? "",
+    }));
+    return c.json({ subscriptions: subscriptionsMeta, items, hasMore });
   });
   // SSE：推送后台抓取进度，客户端通过 EventSource 实时感知新条目
   app.get("/api/events", (c) => {
