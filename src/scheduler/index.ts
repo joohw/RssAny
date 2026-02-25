@@ -127,9 +127,11 @@ export async function initScheduler(cacheDir = "cache"): Promise<void> {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         console.log("[Scheduler] 检测到 subscriptions.json 变化，重新调度…");
-        reschedule(cacheDir).catch((err) => {
-          console.warn("[Scheduler] 重调度失败:", err instanceof Error ? err.message : String(err));
-        });
+        reschedule(cacheDir)
+          .then(() => warmUp(cacheDir))  // 重调度后立即预热，确保新增信源不需等待第一个周期
+          .catch((err) => {
+            console.warn("[Scheduler] 重调度失败:", err instanceof Error ? err.message : String(err));
+          });
       }, 500);
     });
     watcher.on("error", (err) => {
