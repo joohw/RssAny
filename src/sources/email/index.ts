@@ -54,9 +54,21 @@ export const emailSource: RssSource = {
       auth: { user, pass },
       logger: false,
     });
-    await client.connect();
+
+    // IMAP 底层 socket 出错会通过 EventEmitter 的 error 事件抛出，必须显式监听避免进程崩溃。
+    client.on("error", (err) => {
+      logger.error("source", "IMAP 连接异常", {
+        err: err instanceof Error ? err.message : String(err),
+        host,
+        folder,
+      });
+    });
+
     const items: FeedItem[] = [];
+    let connected = false;
     try {
+      await client.connect();
+      connected = true;
       const lock = await client.getMailboxLock(folder);
       try {
         const mailbox = client.mailbox;
@@ -87,8 +99,27 @@ export const emailSource: RssSource = {
       } finally {
         lock.release();
       }
+    } catch (err) {
+      logger.warn("source", "拉取 IMAP 邮件失败", {
+        err: err instanceof Error ? err.message : String(err),
+        host,
+        folder,
+      });
+      return [];
     } finally {
-      await client.logout();
+      if (connected && client.usable) {
+        try {
+          await client.logout();
+        } catch (err) {
+          logger.warn("source", "IMAP 退出连接失败", {
+            err: err instanceof Error ? err.message : String(err),
+            host,
+            folder,
+          });
+        }
+      } else {
+        client.close();
+      }
     }
     return items.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
   },
