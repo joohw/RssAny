@@ -25,7 +25,9 @@
     "webui:dev": "cd webui && npm run dev",
     "webui:build": "cd webui && npm run build",
     "webui:watch": "cd webui && pnpm run build:watch",
-    "build:all": "npm run build && npm run webui:build"
+    "build:all": "npm run build && npm run webui:build",
+    "docker:build": "bash scripts/docker-build.sh",
+    "docker:build:tag": "bash scripts/docker-build.sh"
   },
   "keywords": [
     "rss",

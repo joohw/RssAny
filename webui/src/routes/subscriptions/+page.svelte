@@ -96,72 +96,85 @@
   <title>订阅管理 - RssAny</title>
 </svelte:head>
 
-<div class="container">
-  <div class="page-header">
-    <div>
-      <h1>订阅管理</h1>
-      <p class="page-desc">
-        直接编辑 <code>.rssany/subscriptions.json</code> 文件内容，支持实时 JSON 格式检查
-      </p>
+<div class="page">
+  <div class="subs-col">
+    <div class="subs-header">
+      <div class="header-left">
+        <h2>订阅管理</h2>
+        <p class="page-desc">
+          直接编辑 <code>.rssany/subscriptions.json</code>，支持实时 JSON 格式检查
+        </p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" on:click={format} disabled={!!error || loading}>
+          格式化
+        </button>
+        <button class="btn btn-primary" on:click={save} disabled={!canSave}>
+          {saving ? '保存中…' : '保存'}
+        </button>
+      </div>
     </div>
-    <div class="header-actions">
-      <button class="btn btn-secondary" on:click={format} disabled={!!error || loading}>
-        格式化
-      </button>
-      <button class="btn btn-primary" on:click={save} disabled={!canSave}>
-        {saving ? '保存中…' : '保存'}
-      </button>
-    </div>
+
+    {#if loading}
+      <div class="state">加载中…</div>
+    {:else}
+      <div class="editor-wrap" class:has-error={!!error}>
+        <textarea
+          class="editor"
+          bind:value={content}
+          on:keydown={handleKeydown}
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+        ></textarea>
+      </div>
+
+      <div class="footer">
+        {#if error}
+          <span class="msg error">✗ {error}</span>
+        {:else if saveMsg}
+          <span class="msg {saveMsg.startsWith('保存失败') ? 'error' : 'success'}">{saveMsg.startsWith('保存失败') ? '✗' : '✓'} {saveMsg}</span>
+        {:else if dirty}
+          <span class="msg hint">未保存的更改 · Cmd/Ctrl+S 快速保存</span>
+        {:else}
+          <span class="msg hint">已同步</span>
+        {/if}
+      </div>
+    {/if}
   </div>
-
-  {#if loading}
-    <div class="state">加载中…</div>
-  {:else}
-    <div class="editor-wrap" class:has-error={!!error}>
-      <textarea
-        class="editor"
-        bind:value={content}
-        on:keydown={handleKeydown}
-        spellcheck="false"
-        autocomplete="off"
-        autocapitalize="off"
-      ></textarea>
-    </div>
-
-    <div class="footer">
-      {#if error}
-        <span class="msg error">✗ {error}</span>
-      {:else if saveMsg}
-        <span class="msg {saveMsg.startsWith('保存失败') ? 'error' : 'success'}">{saveMsg.startsWith('保存失败') ? '✗' : '✓'} {saveMsg}</span>
-      {:else if dirty}
-        <span class="msg hint">未保存的更改 · Cmd/Ctrl+S 快速保存</span>
-      {:else}
-        <span class="msg hint">已同步</span>
-      {/if}
-    </div>
-  {/if}
 </div>
 
 <style>
-  .container {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem;
-    display: flex;
-    flex-direction: column;
+  .page {
     height: calc(100vh - 48px);
+    display: flex;
+    overflow: hidden;
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
   }
 
-  .page-header {
+  .subs-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+    border-left: 1px solid #e5e7eb;
+    border-right: 1px solid #e5e7eb;
+  }
+
+  .subs-header {
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid #f0f0f0;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 1rem;
-    margin-bottom: 1rem;
     flex-shrink: 0;
   }
-  .page-header h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.2rem; }
-  .page-desc { font-size: 0.8rem; color: #888; }
+  .subs-header h2 { font-size: 0.9375rem; font-weight: 600; margin: 0 0 0.15rem; }
+  .page-desc { font-size: 0.75rem; color: #aaa; margin: 0; }
   .page-desc code { background: #f0f0f0; padding: 0.1rem 0.35rem; border-radius: 3px; font-family: monospace; }
 
   .header-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
@@ -169,11 +182,11 @@
   .btn {
     display: inline-flex;
     align-items: center;
-    padding: 0.45rem 1rem;
+    padding: 0.35rem 0.85rem;
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-family: inherit;
     transition: background 0.15s;
     white-space: nowrap;
@@ -186,14 +199,12 @@
 
   .editor-wrap {
     flex: 1;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    overflow: hidden;
-    background: #fff;
-    transition: border-color 0.15s;
     min-height: 0;
+    overflow: hidden;
+    border-top: 2px solid transparent;
+    transition: border-color 0.15s;
   }
-  .editor-wrap.has-error { border-color: #e53e3e; }
+  .editor-wrap.has-error { border-top-color: #e53e3e; }
 
   .editor {
     width: 100%;
@@ -212,13 +223,14 @@
 
   .footer {
     flex-shrink: 0;
-    padding: 0.5rem 0.25rem;
-    min-height: 1.75rem;
+    padding: 0.4rem 1.25rem;
+    border-top: 1px solid #f0f0f0;
+    min-height: 2rem;
+    display: flex;
+    align-items: center;
   }
 
-  .msg {
-    font-size: 0.775rem;
-  }
+  .msg { font-size: 0.75rem; }
   .msg.error { color: #e53e3e; }
   .msg.success { color: #1a7f37; }
   .msg.hint { color: #bbb; }
@@ -228,5 +240,10 @@
     padding: 4rem;
     color: #aaa;
     font-size: 0.875rem;
+  }
+
+  @media (max-width: 720px) {
+    .page { max-width: 100%; }
+    .subs-col { border: none; }
   }
 </style>

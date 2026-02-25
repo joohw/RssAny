@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-
   const LEVELS = ['error', 'warn', 'info', 'debug'] as const;
   const CATEGORIES = ['feeder', 'scheduler', 'enrich', 'db', 'auth', 'plugin', 'source', 'llm', 'app', 'config'] as const;
 
@@ -26,13 +24,37 @@
 
   const PAGE_SIZE = 50;
 
+  // 级别、分类变更时直接重新加载
+  $: {
+    void filterLevel;
+    void filterCategory;
+    offset = 0;
+    load();
+  }
+
+  // 信源 URL 防抖 400ms 后参与请求
+  let filterSourceUrlApplied = filterSourceUrl;
+  let sourceDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  $: {
+    const _ = filterSourceUrl;
+    if (sourceDebounceTimer) clearTimeout(sourceDebounceTimer);
+    sourceDebounceTimer = setTimeout(() => {
+      if (filterSourceUrl !== filterSourceUrlApplied) {
+        filterSourceUrlApplied = filterSourceUrl;
+        offset = 0;
+        load();
+      }
+      sourceDebounceTimer = null;
+    }, 400);
+  }
+
   function buildUrl(): string {
     const params = new URLSearchParams();
     params.set('limit', String(PAGE_SIZE));
     params.set('offset', String(offset));
     if (filterLevel) params.set('level', filterLevel);
     if (filterCategory) params.set('category', filterCategory);
-    if (filterSourceUrl.trim()) params.set('source_url', filterSourceUrl.trim());
+    if (filterSourceUrlApplied.trim()) params.set('source_url', filterSourceUrlApplied.trim());
     return '/api/logs?' + params.toString();
   }
 
@@ -54,7 +76,7 @@
     }
   }
 
-  function applyFilters() {
+  function refresh() {
     offset = 0;
     load();
   }
@@ -93,7 +115,6 @@
     }
   }
 
-  onMount(load);
 </script>
 
 <svelte:head>
@@ -101,41 +122,39 @@
 </svelte:head>
 
 <div class="page">
-  <div class="page-header">
-    <h1>日志</h1>
-    <p class="page-desc">
-      按级别、分类、信源筛选，error/warn 会落库（由 LOG_LEVEL / LOG_TO_DB 控制）
-    </p>
-  </div>
-
-  <div class="filters">
-    <div class="filter-row">
-      <label>
-        <span>级别</span>
-        <select bind:value={filterLevel}>
-          <option value="">全部</option>
-          {#each LEVELS as l}
-            <option value={l}>{l}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        <span>分类</span>
-        <select bind:value={filterCategory}>
-          <option value="">全部</option>
-          {#each CATEGORIES as c}
-            <option value={c}>{c}</option>
-          {/each}
-        </select>
-      </label>
-      <label class="filter-source">
-        <span>信源 URL</span>
-        <input type="text" bind:value={filterSourceUrl} placeholder="可选，按 source_url 过滤" />
-      </label>
-      <button class="btn btn-primary" on:click={applyFilters} disabled={loading}>查询</button>
+  <div class="logs-col">
+    <div class="logs-header">
+      <h2>日志</h2>
     </div>
-  </div>
+    <div class="filters">
+      <div class="filter-row">
+        <label>
+          <span>级别</span>
+          <select bind:value={filterLevel}>
+            <option value="">全部</option>
+            {#each LEVELS as l}
+              <option value={l}>{l}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span>分类</span>
+          <select bind:value={filterCategory}>
+            <option value="">全部</option>
+            {#each CATEGORIES as c}
+              <option value={c}>{c}</option>
+            {/each}
+          </select>
+        </label>
+        <label class="filter-source">
+          <span>信源 URL</span>
+          <input type="text" bind:value={filterSourceUrl} placeholder="可选，按 source_url 过滤" />
+        </label>
+        <button class="btn btn-secondary" on:click={refresh} disabled={loading} title="刷新">刷新</button>
+      </div>
+    </div>
 
+  <div class="log-area">
   {#if error}
     <div class="state err">{error}</div>
   {:else if loading && items.length === 0}
@@ -143,6 +162,13 @@
   {:else if items.length === 0}
     <div class="state">暂无日志</div>
   {:else}
+    <div class="log-toolbar">
+      <span class="pagination-info">共 {total} 条，当前 {items.length ? `${offset + 1}–${offset + items.length}` : '—'}</span>
+      <div class="pagination-btns">
+        <button class="btn btn-secondary btn-sm" disabled={offset <= 0 || loading} on:click={prevPage}>上一页</button>
+        <button class="btn btn-secondary btn-sm" disabled={offset + items.length >= total || loading} on:click={nextPage}>下一页</button>
+      </div>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -150,41 +176,32 @@
             <th class="th-time">时间</th>
             <th class="th-level">级别</th>
             <th class="th-cat">分类</th>
-            <th class="th-msg">消息</th>
             <th class="th-source">信源</th>
-            <th class="th-payload"></th>
+            <th class="th-msg">消息</th>
           </tr>
         </thead>
         <tbody>
           {#each items as log (log.id)}
-            <tr>
+            <tr
+              class="log-row"
+              role="button"
+              tabindex="0"
+              on:click={() => togglePayload(log.id)}
+              on:keydown={(e) => e.key === 'Enter' && togglePayload(log.id)}
+            >
               <td class="td-time">{formatTime(log.created_at)}</td>
               <td class="td-level">
                 <span class="badge level-{log.level}">{log.level}</span>
               </td>
               <td class="td-cat">{log.category}</td>
-              <td class="td-msg">{log.message}</td>
               <td class="td-source" title={log.source_url ?? ''}>
                 {log.source_url ? (log.source_url.length > 40 ? log.source_url.slice(0, 40) + '…' : log.source_url) : '—'}
               </td>
-              <td class="td-payload">
-                {#if log.payload}
-                  <button
-                    type="button"
-                    class="payload-btn"
-                    on:click={() => togglePayload(log.id)}
-                    title="展开/收起 payload"
-                  >
-                    {expandedId === log.id ? '收起' : '…'}
-                  </button>
-                {:else}
-                  —
-                {/if}
-              </td>
+              <td class="td-msg">{log.message}</td>
             </tr>
             {#if expandedId === log.id && log.payload}
               <tr class="payload-row">
-                <td colspan="6">
+                <td colspan="5">
                   <pre class="payload-content">{tryFormatPayload(log.payload)}</pre>
                 </td>
               </tr>
@@ -194,36 +211,53 @@
       </table>
     </div>
 
-    <div class="pagination">
-      <span class="pagination-info">
-        共 {total} 条，当前 {offset + 1}–{offset + items.length}
-      </span>
-      <div class="pagination-btns">
-        <button class="btn btn-secondary" disabled={offset <= 0 || loading} on:click={prevPage}>上一页</button>
-        <button class="btn btn-secondary" disabled={offset + items.length >= total || loading} on:click={nextPage}>下一页</button>
-      </div>
-    </div>
   {/if}
+  </div>
+  </div>
 </div>
 
 <style>
   .page {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem;
+    height: calc(100vh - 48px);
     display: flex;
-    flex-direction: column;
-    gap: 1rem;
+    overflow: hidden;
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
   }
 
-  .page-header h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.2rem; }
-  .page-desc { font-size: 0.8rem; color: #888; margin: 0; }
+  .logs-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+    border-left: 1px solid #e5e7eb;
+    border-right: 1px solid #e5e7eb;
+  }
+
+  .logs-header {
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid #f0f0f0;
+    flex-shrink: 0;
+  }
+  .logs-header h2 { font-size: 0.9375rem; font-weight: 600; margin: 0 0 0.15rem; }
+  .logs-header .page-desc { font-size: 0.75rem; color: #aaa; margin: 0; }
+
+  .log-area {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .log-area::-webkit-scrollbar { width: 4px; }
+  .log-area::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
 
   .filters {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #f0f0f0;
+    padding: 0.75rem 1.25rem;
+    flex-shrink: 0;
   }
   .filter-row {
     display: flex;
@@ -274,12 +308,10 @@
   .btn-secondary { background: #f0f0f0; color: #333; }
   .btn-secondary:hover:not(:disabled) { background: #e0e0e0; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
 
   .table-wrap {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    overflow: hidden;
+    flex: 1;
   }
   table { width: 100%; border-collapse: collapse; }
   thead th {
@@ -300,9 +332,16 @@
   .th-time { width: 130px; }
   .th-level { width: 68px; }
   .th-cat { width: 82px; }
-  .th-msg { min-width: 0; }
   .th-source { width: 120px; max-width: 120px; }
-  .th-payload { width: 56px; }
+  .th-msg { min-width: 0; }
+
+  .log-row {
+    cursor: pointer;
+  }
+  .log-row:focus {
+    outline: 1px dotted #999;
+    outline-offset: -1px;
+  }
 
   .td-time { color: #888; white-space: nowrap; }
   .td-level { white-space: nowrap; }
@@ -319,7 +358,6 @@
   .badge.level-debug { background: #f5f5f5; color: #666; border: 1px solid #e5e5e5; }
 
   .td-cat { color: #555; }
-  .td-msg { word-break: break-word; max-width: 320px; }
   .td-source {
     color: #888;
     font-size: 0.75rem;
@@ -328,17 +366,7 @@
     max-width: 120px;
     white-space: nowrap;
   }
-  .payload-btn {
-    padding: 0.15rem 0.4rem;
-    font-size: 0.7rem;
-    border: 1px solid #e0e0e0;
-    background: #f8f8f8;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: inherit;
-    color: #666;
-  }
-  .payload-btn:hover { background: #eee; }
+  .td-msg { word-break: break-word; max-width: 320px; }
 
   .payload-row td { padding: 0 0.75rem 0.5rem; background: #fafafa; border-bottom: 1px solid #eee; vertical-align: top; }
   .payload-content {
@@ -357,14 +385,15 @@
     word-break: break-all;
   }
 
-  .pagination {
+  .log-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    padding: 0.5rem 0;
+    padding: 0.5rem 1.25rem;
+    border-bottom: 1px solid #f0f0f0;
+    flex-shrink: 0;
   }
+
   .pagination-info { font-size: 0.8125rem; color: #888; }
   .pagination-btns { display: flex; gap: 0.5rem; }
 
@@ -376,9 +405,11 @@
   }
   .state.err { color: #b91c1c; background: #fef2f2; border-radius: 8px; padding: 1rem; }
 
-  @media (max-width: 768px) {
+  @media (max-width: 720px) {
+    .page { max-width: 100%; }
+    .logs-col { border: none; }
     .th-source, .td-source { display: none; }
     .payload-row td { padding-left: 0.5rem; }
-    .payload-row td[colspan="6"] { padding-left: 0.5rem; }
+    .payload-row td[colspan="5"] { padding-left: 0.5rem; }
   }
 </style>
