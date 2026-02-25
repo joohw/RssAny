@@ -1,37 +1,19 @@
-// 语鲸 Open API 插件：将语鲸推荐文章 / 今日文章转换为 FeedItem[]
-// sourceId 格式：lingowhale://articles 或 lingowhale://today
-// 认证参数可内联于 URL query：?app_id=xxx&app_secret=yyy
-// 也可通过环境变量 LINGOWHALE_APP_ID / LINGOWHALE_APP_SECRET 提供
-
-import type { Site, SiteContext } from "../src/sources/web/site.js";
-import type { FeedItem } from "../src/types/feedItem.js";
+// 语鲸 Open API 插件：将语鲸推荐文章 / 今日文章转换为条目列表
+//
+// sourceId 格式：
+//   lingowhale://articles  — 推荐文章（默认拉取 2 页，可用 ?pages=5 调整）
+//   lingowhale://today     — 今日文章（自动翻页拉完）
+//
+// 认证参数可内联于 URL query：
+//   lingowhale://articles?app_id=xxx&app_secret=yyy
+// 也可通过环境变量提供（优先级低于 URL 参数）：
+//   LINGOWHALE_APP_ID / LINGOWHALE_APP_SECRET
 
 
 const BASE_URL = "https://open.lingowhale.com/open-api/v1";
 
 
-interface LingowhaleArticle {
-  entry_id: string;
-  title?: string;
-  orig_url?: string;
-  html?: string;
-  pub_time?: number;
-  abstract?: string;
-  description?: string;
-}
-
-interface LingowhaleListResponse {
-  code: number;
-  message: string;
-  data: {
-    items: LingowhaleArticle[];
-    total?: number;
-    nextCursor?: string;
-  };
-}
-
-
-function resolveCredentials(sourceId: string): { appId: string; appSecret: string } {
+function resolveCredentials(sourceId) {
   let appId = process.env.LINGOWHALE_APP_ID ?? "";
   let appSecret = process.env.LINGOWHALE_APP_SECRET ?? "";
   try {
@@ -48,11 +30,11 @@ function resolveCredentials(sourceId: string): { appId: string; appSecret: strin
   return { appId, appSecret };
 }
 
-function resolveEndpoint(sourceId: string): "articles" | "today" {
+function resolveEndpoint(sourceId) {
   return sourceId.includes("://today") ? "today" : "articles";
 }
 
-function resolveMaxPages(sourceId: string): number {
+function resolveMaxPages(sourceId) {
   try {
     const parsed = new URL(sourceId.replace(/^lingowhale:/, "http://x"));
     const pages = parseInt(parsed.searchParams.get("pages") ?? "", 10);
@@ -61,7 +43,7 @@ function resolveMaxPages(sourceId: string): number {
   return 2;
 }
 
-function buildHeaders(appId: string, appSecret: string): Record<string, string> {
+function buildHeaders(appId, appSecret) {
   return {
     "X-App-ID": appId,
     "X-App-Secret": appSecret,
@@ -70,11 +52,11 @@ function buildHeaders(appId: string, appSecret: string): Record<string, string> 
   };
 }
 
-function stripHl(text: string): string {
+function stripHl(text) {
   return text.replace(/<\/?hl>/g, "");
 }
 
-function mapArticle(article: LingowhaleArticle): FeedItem {
+function mapArticle(article) {
   const link = article.orig_url ?? `https://lingowhale.com/article/${article.entry_id}`;
   const rawSummary = article.abstract || article.description;
   return {
@@ -87,13 +69,13 @@ function mapArticle(article: LingowhaleArticle): FeedItem {
   };
 }
 
-async function fetchArticles(appId: string, appSecret: string, maxPages: number): Promise<FeedItem[]> {
+async function fetchArticles(appId, appSecret, maxPages) {
   const headers = buildHeaders(appId, appSecret);
-  const items: FeedItem[] = [];
+  const items = [];
   for (let page = 1; page <= maxPages; page++) {
     const res = await fetch(`${BASE_URL}/articles?page=${page}&page_size=20`, { headers });
     if (!res.ok) throw new Error(`[LingowhalePlugin] HTTP ${res.status} 拉取文章列表失败`);
-    const json = await res.json() as LingowhaleListResponse;
+    const json = await res.json();
     if (json.code !== 0) throw new Error(`[LingowhalePlugin] API 错误：${json.message}`);
     const pageItems = json.data.items ?? [];
     items.push(...pageItems.map(mapArticle));
@@ -103,15 +85,15 @@ async function fetchArticles(appId: string, appSecret: string, maxPages: number)
   return items;
 }
 
-async function fetchTodayArticles(appId: string, appSecret: string): Promise<FeedItem[]> {
+async function fetchTodayArticles(appId, appSecret) {
   const headers = buildHeaders(appId, appSecret);
-  const items: FeedItem[] = [];
-  let cursor: string | undefined;
+  const items = [];
+  let cursor;
   for (let round = 0; round < 10; round++) {
     const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
     const res = await fetch(`${BASE_URL}/articles/today?page_size=20${cursorParam}`, { headers });
     if (!res.ok) throw new Error(`[LingowhalePlugin] HTTP ${res.status} 拉取今日文章失败`);
-    const json = await res.json() as LingowhaleListResponse;
+    const json = await res.json();
     if (json.code !== 0) throw new Error(`[LingowhalePlugin] API 错误：${json.message}`);
     const pageItems = json.data.items ?? [];
     items.push(...pageItems.map(mapArticle));
@@ -122,12 +104,12 @@ async function fetchTodayArticles(appId: string, appSecret: string): Promise<Fee
 }
 
 
-const lingowhalePlugin: Site = {
+export default {
   id: "lingowhale",
   listUrlPattern: /^lingowhale:\/\//,
   refreshInterval: "1h",
 
-  async fetchItems(sourceId: string, _ctx: SiteContext): Promise<FeedItem[]> {
+  async fetchItems(sourceId, _ctx) {
     const { appId, appSecret } = resolveCredentials(sourceId);
     const endpoint = resolveEndpoint(sourceId);
     const maxPages = resolveMaxPages(sourceId);
@@ -135,5 +117,3 @@ const lingowhalePlugin: Site = {
     return fetchArticles(appId, appSecret, maxPages);
   },
 };
-
-export default lingowhalePlugin;
