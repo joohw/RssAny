@@ -17,7 +17,10 @@ export interface SiteContext {
    * 用浏览器抓取指定 URL，返回渲染后的 HTML。
    * 插件需要访问网页时调用此方法，框架负责浏览器管理与 cookie 注入。
    */
-  fetchHtml(url: string, opts?: { waitMs?: number }): Promise<{ html: string; finalUrl: string; status: number }>;
+  fetchHtml(
+    url: string,
+    opts?: { waitMs?: number; purify?: boolean }
+  ): Promise<{ html: string; finalUrl: string; status: number }>;
 }
 
 

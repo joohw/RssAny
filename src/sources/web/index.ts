@@ -25,6 +25,7 @@ export function buildSiteContext(site: Site, ctx: SourceContext): SiteContext {
         headless: ctx.headless,
         proxy,
         waitAfterLoadMs: opts?.waitMs,
+        purify: opts?.purify,
       });
       return { html: res.body, finalUrl: res.finalUrl ?? url, status: res.status };
     },
