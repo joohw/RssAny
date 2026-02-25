@@ -27,7 +27,7 @@
   let allItems: FeedItem[] = [];
   let activeFilter = 'all';
   let subscriptions: { id: string; title: string }[] = [];
-  let loading = false;      // 首次 / 刷新加载
+  let loading = false;      // 首次加载
   let loadingMore = false;  // 下拉加载更多
   let loadError = '';
   let hasMore = false;
@@ -40,7 +40,6 @@
   let showBackTop = false;
   let esRef: EventSource | null = null;
 
-  $: itemCount = allItems.length;
 
   function relativeTime(dateStr?: string): string {
     if (!dateStr) return '';
@@ -190,20 +189,9 @@
     <div class="feed-header">
       <h2>信息流</h2>
       <div class="feed-header-right">
-        {#if itemCount > 0}
-          <span class="item-count">{itemCount} 条</span>
-        {/if}
         {#if showBadge}
           <button class="update-badge" on:click={dismissBadge}>{badgeText}</button>
         {/if}
-        <button
-          class="refresh-btn"
-          class:loading
-          disabled={loading}
-          on:click={() => loadFeed(false)}
-        >
-          ↺ {loading ? '加载中…' : '刷新'}
-        </button>
       </div>
     </div>
 
@@ -259,7 +247,7 @@
         {#if loadingMore}
           <div class="load-more-state">加载更多…</div>
         {:else if !hasMore && allItems.length > 0}
-          <div class="load-more-state">已加载全部 {itemCount} 条</div>
+          <div class="load-more-state">已加载全部 {allItems.length} 条</div>
         {/if}
       {/if}
     </div>
@@ -299,21 +287,6 @@
   }
   .feed-header h2 { font-size: 0.9375rem; font-weight: 600; }
   .feed-header-right { display: flex; align-items: center; gap: 0.75rem; }
-
-  .item-count { font-size: 0.75rem; color: #bbb; }
-
-  .refresh-btn {
-    font-size: 0.75rem;
-    color: #888;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.2rem 0.4rem;
-    border-radius: 4px;
-    font-family: inherit;
-  }
-  .refresh-btn:hover { color: #111; background: #f5f5f5; }
-  .refresh-btn.loading { opacity: 0.5; pointer-events: none; }
 
   .update-badge {
     font-size: 0.7rem;
