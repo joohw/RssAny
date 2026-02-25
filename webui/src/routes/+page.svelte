@@ -146,15 +146,20 @@
     es.onerror = () => { es.close(); esRef = null; setTimeout(connectSSE, 5000); };
   }
 
+  // sentinel 由 bind:this 在条目渲染后才出现，用响应式语句保证一旦绑定就立刻 observe
+  $: if (sentinel && observer) {
+    observer.disconnect();
+    observer.observe(sentinel);
+  }
+
   onMount(() => {
     loadFeed(false);
     connectSSE();
-    // IntersectionObserver 监听哨兵元素，触底时自动加载下一页
+    // 先创建 observer，sentinel 出现时由上面的 $: 自动绑定
     observer = new IntersectionObserver(
       (entries) => { if (entries[0].isIntersecting && hasMore && !loadingMore) loadMore(); },
       { rootMargin: '200px' }
     );
-    if (sentinel) observer.observe(sentinel);
   });
 
   onDestroy(() => {
