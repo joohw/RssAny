@@ -36,8 +36,7 @@
   let showBadge = false;
   let badgeText = '';
 
-  let sentinel: HTMLElement | null = null;
-  let observer: IntersectionObserver | null = null;
+  let listEl: HTMLElement | null = null;  // 滚动容器引用，供 IntersectionObserver 做 root
   let esRef: EventSource | null = null;
 
   $: itemCount = allItems.length;
@@ -133,6 +132,23 @@
   function hideBadge() { pendingNewCount = 0; showBadge = false; }
   function dismissBadge() { loadFeed(true); }
 
+  /**
+   * Svelte Action：挂载到哨兵元素上，以 listEl（滚动容器）为 root 创建 IntersectionObserver。
+   * 元素出现时自动 observe，元素从 DOM 移除时（{#if hasMore} 为 false 时）自动 disconnect。
+   * 无需手动管理 bind:this 与 $: 响应式，生命周期与 DOM 元素完全对齐。
+   */
+  function sentinelObserver(node: HTMLElement) {
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) loadMore();
+      },
+      // root 设为滚动容器，保证相对于可见列表区域判断交叉，而非整个 viewport
+      { root: listEl, rootMargin: '0px 0px 300px 0px' }
+    );
+    obs.observe(node);
+    return { destroy() { obs.disconnect(); } };
+  }
+
   function connectSSE() {
     const es = new EventSource('/api/events');
     esRef = es;
@@ -146,24 +162,12 @@
     es.onerror = () => { es.close(); esRef = null; setTimeout(connectSSE, 5000); };
   }
 
-  // sentinel 由 bind:this 在条目渲染后才出现，用响应式语句保证一旦绑定就立刻 observe
-  $: if (sentinel && observer) {
-    observer.disconnect();
-    observer.observe(sentinel);
-  }
-
   onMount(() => {
     loadFeed(false);
     connectSSE();
-    // 先创建 observer，sentinel 出现时由上面的 $: 自动绑定
-    observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting && hasMore && !loadingMore) loadMore(); },
-      { rootMargin: '200px' }
-    );
   });
 
   onDestroy(() => {
-    observer?.disconnect();
     esRef?.close();
   });
 </script>
@@ -210,8 +214,8 @@
       {/each}
     </div>
 
-    <!-- 条目列表 -->
-    <div class="feed-list">
+    <!-- 条目列表；bind:this 供 IntersectionObserver 做 root -->
+    <div class="feed-list" bind:this={listEl}>
       {#if loading && allItems.length === 0}
         <div class="state">加载中…</div>
       {:else if loadError && allItems.length === 0}
@@ -239,8 +243,10 @@
             </div>
           </div>
         {/each}
-        <!-- 哨兵元素：进入视口时触发加载下一页 -->
-        <div bind:this={sentinel}></div>
+        <!-- 哨兵元素：仅在 hasMore 时渲染；use:sentinelObserver 随元素生命周期自动 observe/disconnect -->
+        {#if hasMore}
+          <div use:sentinelObserver></div>
+        {/if}
         {#if loadingMore}
           <div class="load-more-state">加载更多…</div>
         {:else if !hasMore && allItems.length > 0}
