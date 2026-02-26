@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 
 const SITE_ID = "five-radar";
 const DEFAULT_PAGE_SIZE = 30;
-const THEME_PAGE_SIZE = 10;
+const THEME_PAGE_SIZE = 20;
+const THEME_PAGE_SIZE_CANDIDATES = [20, 10, 5];
 const DEFAULT_MAX_PAGES = 3;
 const MAX_PAGES_LIMIT = 10;
 const THEME_PAGE_RE = /^\/([A-Za-z0-9_-]+)\/news\/?$/;
@@ -236,18 +237,24 @@ function toAbsoluteLink(rawUrl, origin, row) {
   if (text) {
     try {
       const url = new URL(text, origin);
-      if (/^https?:$/i.test(url.protocol)) return url.href;
+      if (/^https?:$/i.test(url.protocol) && !isHomepageLink(url)) return url.href;
     } catch {
       // ignore malformed url from upstream API
     }
   }
 
-  const themeEn = normalizeText(row?.theme?.title_en);
   const idText = String(row?.id ?? "").trim();
-  if (themeEn && idText) {
-    return new URL(`/${themeEn}/news/${idText}`, origin).href;
+  if (idText) {
+    const detailUrl = new URL("/detail", origin);
+    detailUrl.searchParams.set("id", idText);
+    return detailUrl.href;
   }
   return null;
+}
+
+
+function isHomepageLink(url) {
+  return url.pathname === "/" && !url.search && !url.hash;
 }
 
 
@@ -330,10 +337,12 @@ async function fetchThemeRowsPage(origin, opts, page, pageSize = THEME_PAGE_SIZE
   }
 
   if (payload?.status === 422 || payload?.success === false) {
-    throw new Error(
-      `[${SITE_ID}] 目录接口返回错误 (title_en=${opts.titleEn || "recommend"}): ` +
-      `${normalizeText(payload?.error?.message || payload?.message || "unknown error")}`
+    const message = normalizeText(payload?.error?.message || payload?.message || "unknown error");
+    const err = new Error(
+      `[${SITE_ID}] 目录接口返回错误 (title_en=${opts.titleEn || "recommend"}): ${message}`
     );
+    if (isPageSizeValidationError(message)) err.name = "PageSizeValidationError";
+    throw err;
   }
 
   const rows = Array.isArray(payload?.data) ? payload.data : [];
@@ -345,6 +354,49 @@ async function fetchThemeRowsPage(origin, opts, page, pageSize = THEME_PAGE_SIZE
 
 
 async function fetchThemeRowsPaged(origin, opts, pageSize = THEME_PAGE_SIZE, maxPages = DEFAULT_MAX_PAGES) {
+  const candidates = dedupeValidPageSizes([pageSize, ...THEME_PAGE_SIZE_CANDIDATES]);
+  let lastError;
+
+  for (const candidate of candidates) {
+    try {
+      return await fetchThemeRowsPagedWithPageSize(origin, opts, candidate, maxPages);
+    } catch (err) {
+      lastError = err;
+      if (!isPageSizeValidationErr(err)) throw err;
+    }
+  }
+
+  throw lastError ?? new Error(`[${SITE_ID}] 目录抓取失败: 未知错误`);
+}
+
+
+function dedupeValidPageSizes(sizes) {
+  const out = [];
+  for (const size of sizes) {
+    if (!Number.isInteger(size) || size <= 0) continue;
+    if (!out.includes(size)) out.push(size);
+  }
+  return out.length > 0 ? out : [THEME_PAGE_SIZE];
+}
+
+
+function isPageSizeValidationError(message) {
+  const text = normalizeText(message).toLowerCase();
+  return text.includes("page_size") && text.includes("validation.max.numeric");
+}
+
+
+function isPageSizeValidationErr(err) {
+  return err instanceof Error && err.name === "PageSizeValidationError";
+}
+
+
+async function fetchThemeRowsPagedWithPageSize(
+  origin,
+  opts,
+  pageSize = THEME_PAGE_SIZE,
+  maxPages = DEFAULT_MAX_PAGES
+) {
   const out = [];
   const limit = Math.min(MAX_PAGES_LIMIT, Math.max(1, maxPages));
 

@@ -10,6 +10,27 @@ import { emitFeedUpdated } from "../events/index.js";
 
 
 let _db: Database.Database | null = null;
+const DATE_ONLY_TITLE_RE =
+  /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b[\s\d,，./-]*(?:st|nd|rd|th)?[\s\d,，./-]*$/i;
+
+
+function normalizeText(text: string | null | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+
+function isDateOnlyTitle(title: string | null | undefined): boolean {
+  const normalized = normalizeText(title);
+  if (!normalized) return false;
+  return DATE_ONLY_TITLE_RE.test(normalized);
+}
+
+
+function toMs(input: string | null | undefined): number | null {
+  if (!input) return null;
+  const ms = Date.parse(input);
+  return Number.isNaN(ms) ? null : ms;
+}
 
 
 /** 获取（或初始化）全局数据库单例，数据库位于 .rssany/data/rssany.db */
@@ -69,21 +90,84 @@ export async function upsertItems(items: FeedItem[], sourceUrl: string): Promise
     INSERT OR IGNORE INTO items (id, url, source_url, title, author, summary, pub_date, fetched_at)
     VALUES (@id, @url, @sourceUrl, @title, @author, @summary, @pubDate, @fetchedAt)
   `);
+  const selectExistingStmt = db.prepare(`
+    SELECT id, title, author, summary, pub_date, fetched_at
+    FROM items
+    WHERE id = @id
+  `);
+  const repairExistingStmt = db.prepare(`
+    UPDATE items
+    SET title = @title,
+        author = @author,
+        summary = @summary,
+        pub_date = @pubDate,
+        fetched_at = @fetchedAt
+    WHERE id = @id
+  `);
   const now = new Date().toISOString();
   let newCount = 0;
   const run = db.transaction((rows: FeedItem[]) => {
     for (const item of rows) {
+      const nextTitle = normalizeText(item.title) || null;
+      const nextSummary = normalizeText(item.summary) || null;
+      const nextAuthor = normalizeText(item.author) || null;
+      const nextPubDate =
+        item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null);
       const info = stmt.run({
         id: item.guid,
         url: item.link,
         sourceUrl,
-        title: item.title ?? null,
-        author: item.author ?? null,
-        summary: item.summary ?? null,
-        pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null),
+        title: nextTitle,
+        author: nextAuthor,
+        summary: nextSummary,
+        pubDate: nextPubDate,
         fetchedAt: now,
       });
       newCount += info.changes;
+
+      if (info.changes > 0) continue;
+      const existing = selectExistingStmt.get({ id: item.guid }) as {
+        title: string | null;
+        author: string | null;
+        summary: string | null;
+        pub_date: string | null;
+        fetched_at: string | null;
+      } | undefined;
+      if (!existing) continue;
+
+      const shouldRepairTitle =
+        !!nextTitle && !isDateOnlyTitle(nextTitle) &&
+        (isDateOnlyTitle(existing.title) || !normalizeText(existing.title));
+      const shouldRepairSummary =
+        !!nextSummary && normalizeText(existing.summary).length < nextSummary.length;
+      const shouldRepairAuthor = !!nextAuthor && !normalizeText(existing.author);
+
+      const existingPubDateMs = toMs(existing.pub_date);
+      const existingFetchedAtMs = toMs(existing.fetched_at);
+      const nextPubDateMs = toMs(nextPubDate);
+      const existingPubDateLooksFallback =
+        existingPubDateMs != null &&
+        existingFetchedAtMs != null &&
+        Math.abs(existingPubDateMs - existingFetchedAtMs) <= 5 * 60 * 1000;
+      const shouldRepairPubDate =
+        nextPubDateMs != null &&
+        (
+          existingPubDateMs == null ||
+          (existingPubDateLooksFallback && nextPubDateMs < existingPubDateMs - 24 * 60 * 60 * 1000)
+        );
+
+      if (!(shouldRepairTitle || shouldRepairSummary || shouldRepairAuthor || shouldRepairPubDate)) {
+        continue;
+      }
+
+      repairExistingStmt.run({
+        id: item.guid,
+        title: shouldRepairTitle ? nextTitle : existing.title,
+        author: shouldRepairAuthor ? nextAuthor : existing.author,
+        summary: shouldRepairSummary ? nextSummary : existing.summary,
+        pubDate: shouldRepairPubDate ? nextPubDate : existing.pub_date,
+        fetchedAt: now,
+      });
     }
   });
   run(items);
