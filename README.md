@@ -40,8 +40,11 @@ cd webui && pnpm install && cd ..
 复制示例配置并按需修改：
 
 ```bash
-cp subscriptions.example.json .rssany/subscriptions.json
+cp sources.example.json .rssany/sources.json
+cp channels.example.json .rssany/channels.json
 ```
+
+若已有 `.rssany/subscriptions.json`，首次启动会自动迁移为 `sources.json`，并可根据 `sources.json` 生成默认 `channels.json`。
 
 配置 LLM（用于智能解析与正文提取，可选）：
 
@@ -88,7 +91,7 @@ RssAny 本机: http://127.0.0.1:3751/
 |------|------|
 | **信息流** | 多源聚合时间线，实时推送新内容 |
 | **Web2RSS** | 输入任意网页 URL，生成 RSS 订阅源 |
-| **订阅管理** | 编辑 `subscriptions.json`，管理聚合订阅 |
+| **频道管理** | 编辑 `channels.json`，配置首页信息流要聚合的频道 |
 | **Admin** | 需要 Token 验证，包含开发工具与插件管理 |
 
 ### Admin 页面
@@ -115,7 +118,7 @@ http://localhost:3751/rss/https://sspai.com/writers
 
 ### 信息流聚合
 
-在 `.rssany/subscriptions.json` 中定义订阅，将多个信源合并为一条时间线：
+在 `.rssany/sources.json` 中定义爬虫要抓取的信源列表（扁平格式 `{ "sources": [ { "ref", "label?", "refresh?" } ] }`）；在 `.rssany/channels.json` 中定义首页信息流要展示的频道（channel → sourceRefs）。两者解耦：爬虫只读 sources.json，首页只读 channels.json。详见 [docs/subscription-store-design.md](docs/subscription-store-design.md)。
 
 ```json
 {
@@ -184,7 +187,8 @@ export default {
 ├── webui/            前端管理界面（SvelteKit）
 ├── tests/            端到端测试
 └── .rssany/          用户数据目录（自动创建，gitignore）
-    ├── subscriptions.json
+    ├── sources.json
+    ├── channels.json
     ├── admin-token.txt
     ├── plugins/
     └── data/rssany.db

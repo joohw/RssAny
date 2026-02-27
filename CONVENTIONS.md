@@ -106,7 +106,7 @@ src/
 ├── auth/         认证抽象与错误
 ├── llm/          OpenAI API 封装
 ├── scheduler/    定时刷新调度
-├── subscription/ 订阅配置（.rssany/subscriptions.json）
+├── subscription/ 爬虫/订阅配置（.rssany/sources.json）
 ├── feed/         RSS XML 构建
 ├── config/       路径常量（paths.ts）
 ├── events/       事件总线
@@ -122,7 +122,7 @@ src/
 
 ### 用户数据（`.rssany/`，gitignore）
 
-- `subscriptions.json`：订阅配置，信源列表
+- `sources.json`：爬虫配置，订阅与信源列表；`channels.json`：首页信息流频道配置
 - `plugins/`：用户自定义插件
 - `data/rssany.db`：SQLite 数据库
 

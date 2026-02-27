@@ -24,7 +24,8 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 用户数据（不纳入版本管理，位于 .rssany/）
 ├── .rssany/
-│   ├── subscriptions.json  订阅定义（含各信源的 proxy、refresh 配置）
+│   ├── sources.json       爬虫配置（扁平信源列表 { sources: [] }，含 ref/refresh/proxy）
+│   ├── channels.json      首页信息流频道配置（channel → sourceRefs）
 │   ├── config.json         可选：enrich、signal 等配置
 │   ├── plugins/            用户自定义插件（可覆盖同 id 的内置插件）
 │   └── data/
@@ -135,7 +136,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 - **智能降级**：自定义解析器 → LLM 解析 → 通用兜底
 - **增量存储**：SQLite `INSERT OR IGNORE` 天然去重，`pushed_at` 追踪推送状态
 - **缓存策略**：时间窗口 key（10min/30min/1h/6h/12h/1day/3day/7day），过期即重抓
-- **代理支持**：在插件 `Site.proxy` 或 `subscriptions.json` 的 `sources[].proxy` 字段中配置，无需全局 sites.json
+- **代理支持**：在插件 `Site.proxy` 或 `sources.json` 的 `sources[].proxy` 字段中配置，无需全局 sites.json
 - **认证管理**：自动检测登录状态，支持有头浏览器手动登录
 
 
@@ -199,9 +200,9 @@ export default {
 };
 ```
 
-### 订阅配置中的代理与刷新间隔（`.rssany/subscriptions.json`）
+### 订阅配置中的代理与刷新间隔（`.rssany/sources.json`）
 
-也可在订阅配置中对单个信源设置代理或刷新间隔，优先级高于插件声明：
+也可在爬虫配置（sources.json）中对单个信源设置代理或刷新间隔，优先级高于插件声明：
 
 ```json
 {
@@ -224,7 +225,7 @@ export default {
 ### 代理优先级链
 
 ```
-SubscriptionSource.proxy（subscriptions.json 单源覆盖）
+SubscriptionSource.proxy（sources.json 单源覆盖）
   → FeederConfig.proxy（调用方传入）
   → Source.proxy / Site.proxy（插件声明）
   → process.env.HTTP_PROXY（环境变量兜底）

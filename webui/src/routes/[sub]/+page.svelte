@@ -27,7 +27,7 @@
   const PAGE_SIZE = 20;
 
   let allItems: FeedItem[] = [];
-  let subscriptions: { id: string; title: string }[] = [];
+  let channels: { id: string; title: string }[] = [];
   let loading = false;
   let loadingMore = false;
   let loadError = '';
@@ -41,7 +41,7 @@
   let showBackTop = false;
   let esRef: EventSource | null = null;
 
-  // 当前激活的订阅过滤（从 URL 参数读取）
+  // 当前激活的频道过滤（从 URL 参数读取）
   $: activeFilter = $page.params.sub === 'all' ? 'all' : ($page.params.sub ?? 'all');
 
   function relativeTime(dateStr?: string): string {
@@ -88,13 +88,13 @@
     if (!silent) { loading = true; loadError = ''; }
     try {
       const res = await fetch(buildUrl(0, filter));
-      const data: { subscriptions: { id: string; title?: string }[]; items: ApiItem[]; hasMore: boolean } = await res.json();
-      if (Array.isArray(data.subscriptions)) {
-        subscriptions = data.subscriptions.map((s) => ({ id: s.id, title: s.title || s.id }));
+      const data: { channels: { id: string; title?: string }[]; items: ApiItem[]; hasMore: boolean } = await res.json();
+      if (Array.isArray(data.channels)) {
+        channels = data.channels.map((s) => ({ id: s.id, title: s.title || s.id }));
       }
-      if (subscriptions.length === 0) {
+      if (channels.length === 0) {
         allItems = [];
-        loadError = '暂无订阅，请在 <code>subscriptions.json</code> 中配置';
+        loadError = '暂无频道，请在 <code>channels.json</code> 中配置';
         return;
       }
       allItems = (data.items || []).map(mapApiItem);
@@ -205,19 +205,19 @@
       </div>
     </div>
 
-    <!-- 订阅过滤标签（链接式导航） -->
+    <!-- 频道过滤标签（链接式导航） -->
     <div class="filter-bar">
       <a
         class="filter-chip"
         class:active={activeFilter === 'all'}
         href="/all"
       >全部</a>
-      {#each subscriptions as sub}
+      {#each channels as ch}
         <a
           class="filter-chip"
-          class:active={activeFilter === sub.id}
-          href="/{sub.id}"
-        >{sub.title}</a>
+          class:active={activeFilter === ch.id}
+          href="/{ch.id}"
+        >{ch.title}</a>
       {/each}
     </div>
 
@@ -230,8 +230,8 @@
       {:else if allItems.length === 0}
         <div class="state">
           {activeFilter === 'all'
-            ? '暂无内容，请先在 subscriptions.json 中配置订阅'
-            : '该订阅暂无内容'}
+            ? '暂无内容，请先在 channels.json 中配置频道'
+            : '该频道暂无内容'}
         </div>
       {:else}
         {#each allItems as item (item.link)}

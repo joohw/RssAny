@@ -32,23 +32,11 @@ export interface SubscriptionSource {
 }
 
 
-/** 单个订阅的配置 */
-export interface SubscriptionConfig {
-  /** 订阅标题 */
-  title?: string;
-  /** 订阅描述 */
-  description?: string;
-  /** 信源列表 */
+/** sources.json 标准格式：扁平信源列表，无频道/订阅层级 */
+export interface SourcesFile {
+  /** 所有要抓取的信源 */
   sources: SubscriptionSource[];
-  /** 每个信源最多返回多少条目，不填则不限制 */
-  maxItemsPerSource?: number;
-  /** 定时拉取间隔；不填则不启用自动拉取 */
-  pullInterval?: RefreshInterval;
 }
-
-
-/** subscriptions.json 的顶层结构：key 为订阅 id */
-export type SubscriptionsMap = Record<string, SubscriptionConfig>;
 
 
 /** 从旧格式（{ url }）或新格式（{ ref }）中提取信源标识符，确保向后兼容 */

@@ -7,11 +7,10 @@ import { streamSSE } from "hono/streaming";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getRss } from "../feeder/index.js";
 import { onFeedUpdated } from "../events/index.js";
-import { getSubscription, getAllSubscriptionConfigs, createOrUpdateSubscription, deleteSubscription } from "../subscription/index.js";
-import type { SubscriptionConfig } from "../subscription/index.js";
+import { getSourcesRaw, saveSourcesFile } from "../subscription/index.js";
 import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promises";
-import { SUBSCRIPTIONS_CONFIG_PATH } from "../config/paths.js";
-import { resolveRef } from "../subscription/types.js";
+import { CHANNELS_CONFIG_PATH } from "../config/paths.js";
+import { getAllChannelConfigs, collectAllSourceRefs } from "../channel/index.js";
 import { extractFromLink } from "../sources/web/extractor/index.js";
 import { ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sources/web/fetcher/index.js";
 import { getWebSite, getBestSite, getPluginSites, toAuthFlow, buildSiteContext } from "../sources/web/index.js";
@@ -114,34 +113,38 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const result = await queryItems({ sourceUrl, q, limit, offset });
     return c.json(result);
   });
-  // API：分页查询首页信息流（纯 DB 查询，不触发实时抓取）
+  // API：分页查询首页信息流（纯 DB 查询，基于 channels.json，不触发实时抓取）
   // - limit：每页条数，默认 50，最大 200
   // - offset：分页偏移，默认 0
-  // - sub：订阅 id 过滤，省略则返回全部订阅的条目
-  // - 返回：{ subscriptions（元数据）, items（含 sub_id/sub_title）, hasMore }
-  // 注意：不按 refresh 间隔做时间窗口过滤，refresh 仅控制调度频率，不影响展示范围
+  // - sub 或 channel：频道 id 过滤，省略或 all 则返回所有频道的 sourceRefs 并集
+  // - 返回：{ channels（元数据）, items（含 sub_id/sub_title）, hasMore }
   app.get("/api/feed", async (c) => {
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const offset = Number(c.req.query("offset") ?? 0);
-    const subFilter = c.req.query("sub") ?? undefined;
-    const subs = await getAllSubscriptionConfigs();
-    // 订阅元数据（用于过滤标签栏，仅首次请求 offset=0 时有意义）
-    const subscriptionsMeta = subs.map((s) => ({ id: s.id, title: s.title }));
-    // 按 sub 过滤目标订阅，构建 sourceUrl → { subId, subTitle } 映射
-    const targetSubs = subFilter ? subs.filter((s) => s.id === subFilter) : subs;
+    const channelFilter = c.req.query("channel") ?? c.req.query("sub") ?? undefined;
+    const channels = await getAllChannelConfigs();
+    const channelsMeta = channels.map((ch) => ({ id: ch.id, title: ch.title ?? ch.id }));
+    let sourceRefs: string[];
+    if (channelFilter && channelFilter !== "all") {
+      const ch = channels.find((x) => x.id === channelFilter);
+      sourceRefs = ch?.sourceRefs ?? [];
+    } else {
+      sourceRefs = collectAllSourceRefs(channels);
+    }
     const sourceMap = new Map<string, { subId: string; subTitle: string }>();
-    for (const sub of targetSubs) {
-      for (const src of sub.sources) {
-        sourceMap.set(resolveRef(src), { subId: sub.id, subTitle: sub.title ?? sub.id });
+    for (const ch of channels) {
+      const title = ch.title ?? ch.id;
+      for (const ref of ch.sourceRefs || []) {
+        if (ref) sourceMap.set(ref, { subId: ch.id, subTitle: title });
       }
     }
-    const { items: dbItems, hasMore } = await queryFeedItems([...sourceMap.keys()], limit, offset);
+    const { items: dbItems, hasMore } = await queryFeedItems(sourceRefs, limit, offset);
     const items = dbItems.map((item) => ({
       ...item,
       sub_id: sourceMap.get(item.source_url)?.subId ?? "",
       sub_title: sourceMap.get(item.source_url)?.subTitle ?? "",
     }));
-    return c.json({ subscriptions: subscriptionsMeta, items, hasMore });
+    return c.json({ channels: channelsMeta, items, hasMore });
   });
   // SSE：推送后台抓取进度，客户端通过 EventSource 实时感知新条目
   app.get("/api/events", (c) => {
@@ -209,64 +212,50 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     if (token && token === adminToken) return c.json({ ok: true });
     return c.json({ ok: false }, 401);
   });
-  // ── 订阅配置原始 JSON 读写 ────────────────────────────────────────────────────
-  // 读取 subscriptions.json 原始内容
-  app.get("/api/subscriptions/raw", async (c) => {
+  // ── 爬虫配置（sources.json）原始 JSON 读写（新格式：{ sources: [] }，供脚本/调试）────────────────
+  app.get("/api/sources/raw", async (c) => {
     try {
-      const raw = await readFileFs(SUBSCRIPTIONS_CONFIG_PATH, "utf-8");
+      const raw = await getSourcesRaw();
       return c.text(raw, 200, { "Content-Type": "application/json; charset=utf-8" });
     } catch {
-      return c.text("{}", 200, { "Content-Type": "application/json; charset=utf-8" });
+      return c.text(JSON.stringify({ sources: [] }, null, 2), 200, { "Content-Type": "application/json; charset=utf-8" });
     }
   });
-  // 保存 subscriptions.json 原始内容（需是合法 JSON）
-  app.put("/api/subscriptions/raw", async (c) => {
+  app.put("/api/sources/raw", async (c) => {
     try {
-      const raw = await c.req.text();
-      JSON.parse(raw); // 格式校验，失败则抛出
-      await writeFileFs(SUBSCRIPTIONS_CONFIG_PATH, raw, "utf-8");
+      const body = await c.req.json<{ sources?: unknown[] }>();
+      const list = Array.isArray(body?.sources) ? body.sources : [];
+      const sources = list.filter((s): s is Record<string, unknown> => s != null && typeof s === "object" && typeof (s as { ref?: unknown }).ref === "string").map((s) => ({
+        ref: String((s as { ref: string }).ref),
+        type: (s as { type?: string }).type,
+        label: (s as { label?: string }).label,
+        refresh: (s as { refresh?: string }).refresh,
+        proxy: (s as { proxy?: string }).proxy,
+      }));
+      await saveSourcesFile(sources);
       return c.json({ ok: true });
     } catch (err) {
       return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
     }
   });
-  // ── 订阅管理 CRUD API ────────────────────────────────────────────────────────
-  // 列出所有订阅完整配置（管理页面用）
-  app.get("/api/subscription", async (c) => {
-    const subs = await getAllSubscriptionConfigs();
-    return c.json(subs);
-  });
-  // 创建订阅
-  app.post("/api/subscription", async (c) => {
+  // ── 频道配置（channels.json）原始 JSON 读写 ────────────────────────────────────
+  app.get("/api/channels/raw", async (c) => {
     try {
-      const body = await c.req.json<{ id?: string } & SubscriptionConfig>();
-      const { id, ...config } = body;
-      if (!id) return c.json({ ok: false, message: "id 不能为空" }, 400);
-      if (!config.sources?.length) return c.json({ ok: false, message: "sources 不能为空" }, 400);
-      await createOrUpdateSubscription(id, config);
-      return c.json({ ok: true, id });
+      const raw = await readFileFs(CHANNELS_CONFIG_PATH, "utf-8");
+      return c.text(raw, 200, { "Content-Type": "application/json; charset=utf-8" });
+    } catch {
+      return c.text("{}", 200, { "Content-Type": "application/json; charset=utf-8" });
+    }
+  });
+  app.put("/api/channels/raw", async (c) => {
+    try {
+      const raw = await c.req.text();
+      JSON.parse(raw);
+      await writeFileFs(CHANNELS_CONFIG_PATH, raw, "utf-8");
+      return c.json({ ok: true });
     } catch (err) {
       return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
     }
-  });
-  // 更新订阅
-  app.put("/api/subscription/:id", async (c) => {
-    const id = c.req.param("id");
-    try {
-      const config = await c.req.json<SubscriptionConfig>();
-      if (!config.sources?.length) return c.json({ ok: false, message: "sources 不能为空" }, 400);
-      await createOrUpdateSubscription(id, config);
-      return c.json({ ok: true, id });
-    } catch (err) {
-      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
-    }
-  });
-  // 删除订阅
-  app.delete("/api/subscription/:id", async (c) => {
-    const id = c.req.param("id");
-    const deleted = await deleteSubscription(id);
-    if (!deleted) return c.json({ ok: false, message: `订阅 "${id}" 不存在` }, 404);
-    return c.json({ ok: true, id });
   });
   // ── 认证 ──────────────────────────────────────────────────────────────────────
   // 检查登录状态
@@ -334,7 +323,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const raw = await readStaticHtml("401", "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>401</title></head><body><h1>401 需要登录</h1></body></html>");
     return raw.replace(/\{\{listUrl\}\}/g, escapeHtml(listUrl));
   }
-  // ── 后端数据 API（/parse/* /extractor/* /rss/* /subscription/*）────────────
+  // ── 后端数据 API（/parse/* /extractor/* /rss/*）────────────────────────────────
   app.get("/parse/*", async (c) => {
     const url = parseUrlFromPath(c.req.path, "/parse");
     if (!url) return c.text("无效 URL，格式: /parse/https://... 或 /parse/example.com/...", 400);
@@ -390,21 +379,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return c.text(`提取失败: ${msg}`, 500);
-    }
-  });
-  // 获取指定订阅的聚合条目（JSON，服务于数据库/程序消费）
-  app.get("/subscription/:id", async (c) => {
-    const id = c.req.param("id");
-    try {
-      const result = await getSubscription(id, CACHE_DIR);
-      if (!result) return c.json({ error: `订阅 "${id}" 不存在，请检查 subscriptions.json` }, 404);
-      return c.json(result);
-    } catch (err) {
-      if (err instanceof AuthRequiredError) {
-        return c.json({ error: "需要登录", detail: err.message }, 401);
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      return c.json({ error: `拉取订阅失败: ${msg}` }, 500);
     }
   });
   app.get("/rss/*", async (c) => {

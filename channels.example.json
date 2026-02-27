@@ -1,0 +1,23 @@
+{
+  "all": {
+    "title": "全部",
+    "description": "所有频道聚合",
+    "sourceRefs": []
+  },
+  "tech": {
+    "title": "科技",
+    "description": "科技媒体与资讯",
+    "sourceRefs": [
+      "https://sspai.com/feed",
+      "https://www.ruanyifeng.com/blog/atom.xml",
+      "https://feeds.feedburner.com/hacker-news/rss"
+    ]
+  },
+  "mixed": {
+    "title": "综合",
+    "sourceRefs": [
+      "https://feeds.feedburner.com/hacker-news/rss",
+      "https://36kr.com/feed"
+    ]
+  }
+}

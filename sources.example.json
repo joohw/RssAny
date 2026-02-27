@@ -1,0 +1,28 @@
+{
+  "sources": [
+    {
+      "ref": "https://sspai.com/feed",
+      "type": "rss",
+      "label": "少数派",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://www.ruanyifeng.com/blog/atom.xml",
+      "type": "rss",
+      "label": "阮一峰博客",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://feeds.feedburner.com/hacker-news/rss",
+      "type": "rss",
+      "label": "Hacker News",
+      "refresh": "30min"
+    },
+    {
+      "ref": "https://36kr.com/feed",
+      "type": "rss",
+      "label": "36氪",
+      "refresh": "1h"
+    }
+  ]
+}

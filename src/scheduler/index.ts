@@ -1,153 +1,102 @@
-// 调度器：根据订阅的 pullInterval 与信源的 refresh 定时触发 getItems，驱动数据持续增量入库
+// 调度器：根据 sources.json 中的信源 refresh 定时触发 getItems，驱动数据持续增量入库
 
 import { watch } from "node:fs";
-import { getAllSubscriptionConfigs } from "../subscription/index.js";
+import { getAllSources } from "../subscription/index.js";
 import { resolveRef } from "../subscription/types.js";
 import { getItems } from "../feeder/index.js";
-import { SUBSCRIPTIONS_CONFIG_PATH } from "../config/paths.js";
+import { SOURCES_CONFIG_PATH } from "../config/paths.js";
 import type { RefreshInterval } from "../utils/refreshInterval.js";
 import { refreshIntervalToMs } from "../utils/refreshInterval.js";
 import { logger } from "../logger/index.js";
 
 
-/**
- * 活跃定时器注册表：
- *   key = subscriptionId          → 订阅级定时器（源于 pullInterval，覆盖无 refresh 的信源）
- *   key = subscriptionId::ref     → 单信源独立定时器（源于 SubscriptionSource.refresh）
- */
+const DEFAULT_REFRESH: RefreshInterval = "1day";
 const timers = new Map<string, NodeJS.Timeout>();
 
 
-/** 拉取单个信源，携带 refreshInterval 传入 feeder 以统一策略解析 */
-async function pullSource(subId: string, ref: string, cacheDir: string, refreshInterval?: RefreshInterval): Promise<void> {
+async function pullSource(ref: string, cacheDir: string, refreshInterval?: RefreshInterval): Promise<void> {
   try {
-    await getItems(ref, { cacheDir, refreshInterval, writeDb: true });
-    logger.info("scheduler", "信源拉取完成", { source_url: ref, subscriptionId: subId });
+    await getItems(ref, { cacheDir, refreshInterval: refreshInterval ?? DEFAULT_REFRESH, writeDb: true });
+    logger.info("scheduler", "信源拉取完成", { source_url: ref });
   } catch (err) {
     logger.warn("scheduler", "信源拉取失败", {
       source_url: ref,
-      subscriptionId: subId,
       err: err instanceof Error ? err.message : String(err),
     });
   }
 }
 
 
-/** 拉取单个订阅下所有无独立 refresh 的信源，并发触发 fetch→parse→upsert 全流程 */
-async function pullSubscription(id: string, sourceUrls: string[], cacheDir: string, refreshInterval?: RefreshInterval): Promise<void> {
-  logger.info("scheduler", "开始拉取订阅", { subscriptionId: id, sourceCount: sourceUrls.length });
-  const results = await Promise.allSettled(sourceUrls.map((url) => getItems(url, { cacheDir, refreshInterval, writeDb: true })));
-  let ok = 0;
-  let fail = 0;
-  for (const r of results) {
-    if (r.status === "fulfilled") {
-      ok++;
-    } else {
-      fail++;
-      logger.warn("scheduler", "信源拉取失败", {
-        subscriptionId: id,
-        err: r.reason instanceof Error ? r.reason.message : String(r.reason),
-      });
-    }
-  }
-  logger.info("scheduler", "订阅拉取完成", { subscriptionId: id, ok, fail });
-}
-
-
-/** 清除所有活跃定时器 */
 function clearAllTimers(): void {
-  for (const [id, timer] of timers) {
+  for (const [, timer] of timers) {
     clearInterval(timer);
-    timers.delete(id);
   }
+  timers.clear();
 }
 
 
-/** 读取最新订阅配置并重建所有定时器（订阅级 + 单信源级） */
+/** 读取 sources.json 扁平列表并重建定时器（每个信源按 refresh 独立调度） */
 async function reschedule(cacheDir: string): Promise<void> {
   clearAllTimers();
-  let configs: Awaited<ReturnType<typeof getAllSubscriptionConfigs>>;
+  let sources: Awaited<ReturnType<typeof getAllSources>>;
   try {
-    configs = await getAllSubscriptionConfigs();
+    sources = await getAllSources();
   } catch {
-    configs = [];
+    sources = [];
   }
   let count = 0;
-  for (const config of configs) {
-    const sourcesWithOwnRefresh = config.sources.filter((s) => !!s.refresh);
-    const sourcesWithoutRefresh = config.sources.filter((s) => !s.refresh);
-    for (const src of sourcesWithOwnRefresh) {
-      const ref = resolveRef(src);
-      if (!ref) continue;
-      const intervalMs = refreshIntervalToMs(src.refresh!);
-      if (!intervalMs) continue;
-      const timerKey = `${config.id}::${ref}`;
-      const timer = setInterval(() => {
-        pullSource(config.id, ref, cacheDir, src.refresh).catch((err) => {
-          logger.warn("scheduler", "信源定时拉取异常", {
-            source_url: ref,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }, intervalMs);
-      timers.set(timerKey, timer);
-      count++;
-      logger.info("scheduler", "信源已独立调度", { source_url: ref, refresh: src.refresh });
-    }
-    if (!config.pullInterval) continue;
-    const intervalMs = refreshIntervalToMs(config.pullInterval);
+  for (const src of sources) {
+    const ref = resolveRef(src);
+    if (!ref) continue;
+    const interval = src.refresh ?? DEFAULT_REFRESH;
+    const intervalMs = refreshIntervalToMs(interval);
     if (!intervalMs) continue;
-    const subSourceUrls = sourcesWithoutRefresh.map((s) => resolveRef(s)).filter(Boolean);
-    if (subSourceUrls.length === 0) continue;
     const timer = setInterval(() => {
-      pullSubscription(config.id, subSourceUrls, cacheDir, config.pullInterval).catch((err) => {
-        logger.warn("scheduler", "订阅定时拉取异常", {
-          subscriptionId: config.id,
+      pullSource(ref, cacheDir, src.refresh ?? undefined).catch((err) => {
+        logger.warn("scheduler", "信源定时拉取异常", {
+          source_url: ref,
           err: err instanceof Error ? err.message : String(err),
         });
       });
     }, intervalMs);
-    timers.set(config.id, timer);
+    timers.set(ref, timer);
     count++;
-    logger.info("scheduler", "订阅已调度", {
-      subscriptionId: config.id,
-      sourceCount: subSourceUrls.length,
-      pullInterval: config.pullInterval,
-    });
+    logger.info("scheduler", "信源已调度", { source_url: ref, refresh: interval });
   }
-  logger.info("scheduler", "调度完成", { timerCount: count });
+  logger.info("scheduler", "调度完成", { sourceCount: count });
 }
 
 
-/** 启动时对所有订阅触发一次后台拉取，预热数据库；不阻塞启动流程 */
+/** 启动时对所有信源触发一次后台拉取 */
 function warmUp(cacheDir: string): void {
-  getAllSubscriptionConfigs().then((configs) => {
-    for (const config of configs) {
-      const sourceUrls = config.sources.map((s) => resolveRef(s)).filter(Boolean);
-      if (sourceUrls.length === 0) continue;
-      pullSubscription(config.id, sourceUrls, cacheDir, config.pullInterval).catch((err) => {
-        logger.warn("scheduler", "启动预热失败", {
-          subscriptionId: config.id,
-          err: err instanceof Error ? err.message : String(err),
+  getAllSources()
+    .then((sources) => {
+      for (const src of sources) {
+        const ref = resolveRef(src);
+        if (!ref) continue;
+        pullSource(ref, cacheDir, src.refresh ?? undefined).catch((err) => {
+          logger.warn("scheduler", "启动预热失败", {
+            source_url: ref,
+            err: err instanceof Error ? err.message : String(err),
+          });
         });
-      });
-    }
-  }).catch((err) => {
-    logger.warn("scheduler", "启动预热读取配置失败", { err: err instanceof Error ? err.message : String(err) });
-  });
+      }
+    })
+    .catch((err) => {
+      logger.warn("scheduler", "读取 sources.json 失败", { err: err instanceof Error ? err.message : String(err) });
+    });
 }
 
 
-/** 初始化调度器：启动定时任务，并监听 subscriptions.json 变化自动重调度（防抖 500ms） */
 export async function initScheduler(cacheDir = "cache"): Promise<void> {
   await reschedule(cacheDir);
   warmUp(cacheDir);
   let debounceTimer: NodeJS.Timeout | null = null;
   try {
-    const watcher = watch(SUBSCRIPTIONS_CONFIG_PATH, () => {
+    const watcher = watch(SOURCES_CONFIG_PATH, () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        logger.info("scheduler", "检测到 subscriptions.json 变化，重新调度");
+        logger.info("scheduler", "检测到 sources.json 变化，重新调度");
         reschedule(cacheDir)
           .then(() => warmUp(cacheDir))
           .catch((err) => {
@@ -156,9 +105,9 @@ export async function initScheduler(cacheDir = "cache"): Promise<void> {
       }, 500);
     });
     watcher.on("error", (err) => {
-      logger.warn("scheduler", "监听 subscriptions.json 出错", { err: err.message });
+      logger.warn("scheduler", "监听 sources.json 出错", { err: err.message });
     });
   } catch {
-    logger.warn("scheduler", "subscriptions.json 尚不存在，跳过文件监听（创建后请重启服务）");
+    logger.warn("scheduler", "sources.json 尚不存在，跳过文件监听（创建后请重启服务）");
   }
 }
