@@ -202,6 +202,77 @@ interface Site {
 
 ---
 
+## Signal 仓库投递（AI Signals）
+
+RssAny 可将入库的条目以「一条信息一个文件」的形式投递到本地 Signal 仓库目录（与 RssAny 同级别工作区，如 `../AI-Signals`），仅写文件、不执行 git commit/push，便于后续用 Git 或文档分析引擎使用。
+
+### 配置
+
+- 在 `.rssany/config.json` 中增加 `signal` 块：
+  - `enabled`: 是否启用投递，默认 `false`
+  - `repoPath`: Signal 仓库的本地路径，支持相对路径（相对当前工作目录）或绝对路径，例如 `"../AI-Signals"`
+- 环境变量兜底：`SIGNAL_REPO_PATH` 覆盖 `repoPath`；未配置或 `enabled: false` 时不投递。
+
+### 目录与文件名
+
+- 投递根目录为 `repoPath`，其下固定子目录为 `items/`，再按日期分子目录 `YYYY-MM-DD`。
+- 单条信息对应一个文件，路径为 `items/YYYY-MM-DD/<id>.md`。日期取自条目的 `pubDate`（无则用当天）。
+- `<id>` 为**仅作唯一标识的稳定 id**，不包含任何元信息（如频道、日期、标题）：由条目原文链接 `link` 的 SHA256 前 16 位十六进制字符串构成，保证同一链接在不同频道下去重为同一文件。
+
+### Markdown 格式约定
+
+- **编码**：UTF-8。
+- **结构**：YAML frontmatter + 正文。
+  - 第一行必须为 `---`。
+  - frontmatter 为 YAML 键值对，与正文之间以第二个 `---` 分隔。
+  - 正文为 Markdown，用于标题与正文内容。
+
+**Frontmatter 字段（均为可选，但推荐写入）：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 条目唯一标识（如 guid） |
+| `url` | string | 原文链接 |
+| `source_url` | string | 当前来源列表页 URL（单条） |
+| `sources` | string[] | 该信息出现过的所有列表页 URL（多次投递时合并） |
+| `title` | string | 标题 |
+| `author` | string | 作者 |
+| `pub_date` | string | 发布时间，ISO 8601 |
+| `fetched_at` | string | 抓取时间，ISO 8601 |
+
+**正文：**
+
+- 第一行建议为一级标题：`# <title>`，便于纯文本阅读与检索。
+- 随后为摘要（若有），再后为正文（`contentHtml` 转成的 Markdown 或保留 HTML 片段，由实现决定）。
+- 若仅有摘要无正文，则只写摘要；两者皆无则仅保留标题行。
+
+**示例：**
+
+```markdown
+---
+id: "https://example.com/post/123"
+url: "https://example.com/post/123"
+source_url: "https://example.com/user/456"
+sources:
+  - "https://example.com/user/456"
+title: "示例标题"
+author: "作者"
+pub_date: "2025-02-27T12:00:00.000Z"
+fetched_at: "2025-02-27T14:00:00.000Z"
+---
+
+# 示例标题
+
+这里是摘要或正文……
+```
+
+### 接入点
+
+- 投递在 **feeder** 层与写库同步触发：当 `writeDb: true` 且 Signal 配置启用时，在 `upsertItems` 之后对当次列表条目调用批量投递，在 `updateItemContent` 之后对单条更新再投递一次（覆盖同一文件，并合并 `sources`）。
+- 投递失败仅记录日志，不阻塞 RSS 生成与写库。
+
+---
+
 ## 常见模式
 
 ### 新增信源类型

@@ -182,7 +182,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const levelParam = c.req.query("level");
     const level = levelParam === "error" || levelParam === "warn" || levelParam === "info" || levelParam === "debug" ? levelParam : undefined;
     const categoryParam = c.req.query("category");
-    const category = categoryParam && /^(feeder|scheduler|enrich|db|auth|plugin|source|llm|app|config)$/.test(categoryParam) ? categoryParam : undefined;
+    const category = categoryParam && /^(feeder|scheduler|enrich|db|auth|plugin|source|llm|app|config|signal)$/.test(categoryParam) ? categoryParam : undefined;
     const source_url = c.req.query("source_url") ?? undefined;
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const offset = Number(c.req.query("offset") ?? 0);

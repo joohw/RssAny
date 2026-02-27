@@ -15,7 +15,8 @@ export type LogCategory =
   | "source"   // 信源解析/拉取（含 fetcher、parser、extractor）
   | "llm"      // LLM 调用
   | "app"      // HTTP 服务、启动、隧道
-  | "config";  // 配置与迁移
+  | "config"   // 配置与迁移
+  | "signal";  // Signal 仓库投递
 
 /** payload 常用字段约定（非强制）：便于查询与统计 */
 export interface LogPayloadConvention {

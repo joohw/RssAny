@@ -11,6 +11,7 @@ import type { FeedItem } from "../types/feedItem.js";
 import type { FeederConfig, FeederResult } from "./types.js";
 import { upsertItems, updateItemContent } from "../db/index.js";
 import { enrichQueue } from "../enrich/index.js";
+import { writeItems, writeItem } from "../signal/index.js";
 import { logger } from "../logger/index.js";
 
 
@@ -118,6 +119,9 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     upsertItems(items, listUrl).catch((err) =>
       logger.warn("db", "upsertItems 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
     );
+    writeItems(items, listUrl).catch((err) =>
+      logger.warn("signal", "批量投递失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+    );
   }
   if (!includeContent || items.length === 0 || source.enrichItem == null) {
     return { xml: initialXml, items };
@@ -133,6 +137,9 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
         if (config.writeDb) {
           updateItemContent(enrichedItem).catch((err) =>
             logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+          );
+          writeItem(enrichedItem, listUrl).catch((err) =>
+            logger.warn("signal", "投递单条失败", { url: enrichedItem.link, err: err instanceof Error ? err.message : String(err) })
           );
         }
         if (cacheDir) {
@@ -169,6 +176,9 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
       if (config.writeDb && cachedItems != null && cachedItems.length > 0) {
         upsertItems(cachedItems, listUrl).catch((err) =>
           logger.warn("db", "upsertItems(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+        );
+        writeItems(cachedItems, listUrl).catch((err) =>
+          logger.warn("signal", "批量投递(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
         );
       }
       return { xml: cachedXml, fromCache: true, items: cachedItems ?? [] };

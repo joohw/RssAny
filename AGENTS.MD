@@ -25,6 +25,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 用户数据（不纳入版本管理，位于 .rssany/）
 ├── .rssany/
 │   ├── subscriptions.json  订阅定义（含各信源的 proxy、refresh 配置）
+│   ├── config.json         可选：enrich、signal 等配置
 │   ├── plugins/            用户自定义插件（可覆盖同 id 的内置插件）
 │   └── data/
 │       └── rssany.db       SQLite 数据库
@@ -50,6 +51,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 - **流程**：检查缓存 → 匹配信源 → 抓取列表 → 解析条目 → 构建 RSS → 后台补全详情
 - **缓存**：feed 级缓存（读+写），fetch/parse/extract 级仅写（供分析）
 - **写库**：列表解析后立即 `upsertItems`，extract 完成后 `updateItemContent`
+- **Signal 投递**：当 `writeDb` 且 `.rssany/config.json` 中 `signal.enabled` 为 true 时，同步将条目以 Markdown 写入 Signal 仓库目录（仅写文件，不 git commit），见 CONVENTIONS.md「Signal 仓库投递」
 
 ### sources（信源抽象层）
 - **职责**：定义统一 `Source` 接口，汇聚 Web 插件、RssSource、genericWebSource，提供 `getSource` 查找入口
