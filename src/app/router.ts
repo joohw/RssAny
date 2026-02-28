@@ -23,6 +23,7 @@ import { queryItems, queryFeedItems, getPendingPushItems, markPushed, queryLogs 
 import { enrichQueue } from "../scraper/enrich/index.js";
 import { getAdminToken } from "../config/adminToken.js";
 import { logger } from "../core/logger/index.js";
+import { createMcpHandler } from "../mcp/server.js";
 
 
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
@@ -63,6 +64,11 @@ function escapeHtml(s: string): string {
 /** 创建 Hono 应用，feeder 通过参数注入便于测试与换框架 */
 export function createApp(getRssFn: typeof getRss = getRss) {
   const app = new Hono();
+  // MCP：Streamable HTTP（SSE），GET 建 SSE / POST 发 JSON-RPC
+  app.all("/mcp", async (c) => {
+    const handler = await createMcpHandler();
+    return handler(c.req.raw);
+  });
   // API：以 JSON 格式返回 RSS 条目（供 preview 页面轮询使用）；支持 lng 取译文
   app.get("/api/rss", async (c) => {
     const url = c.req.query("url");
@@ -99,6 +105,16 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     if (!task) return c.json({ error: "任务不存在或已过期" }, 404);
     return c.json(task);
   });
+  // API：返回插件列表 JSON
+  app.get("/api/plugins", (c) => {
+    const plugins = getPluginSites().map((s) => ({
+      id: s.id,
+      listUrlPattern: typeof s.listUrlPattern === "string" ? s.listUrlPattern : String(s.listUrlPattern),
+      hasEnrich: !!s.enrichItem,
+      hasAuth: !!(s.checkAuth && s.loginUrl),
+    }));
+    return c.json(plugins);
+  });
   // API：查询数据库条目列表（支持 source_url / q 过滤、分页）；支持 lng 取译文
   app.get("/api/items", async (c) => {
     const sourceUrl = c.req.query("source") ?? undefined;
@@ -134,7 +150,11 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const channelFilter = c.req.query("channel") ?? c.req.query("sub") ?? undefined;
     const lng = c.req.query("lng") ?? undefined;
     const channels = await getAllChannelConfigs();
-    const channelsMeta = channels.map((ch) => ({ id: ch.id, title: ch.title ?? ch.id }));
+    const channelsMeta = channels.map((ch) => ({
+      id: ch.id,
+      title: ch.title ?? ch.id,
+      description: ch.description ?? "",
+    }));
     let sourceRefs: string[];
     if (channelFilter && channelFilter !== "all") {
       const ch = channels.find((x) => x.id === channelFilter);
@@ -215,16 +235,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const since = sinceParam ? new Date(sinceParam) : undefined;
     const result = await queryLogs({ level, category: category as import("../core/logger/types.js").LogCategory | undefined, source_url, limit, offset, since });
     return c.json(result);
-  });
-  // API：返回插件列表 JSON
-  app.get("/api/plugins", (c) => {
-    const plugins = getPluginSites().map((s) => ({
-      id: s.id,
-      listUrlPattern: typeof s.listUrlPattern === "string" ? s.listUrlPattern : String(s.listUrlPattern),
-      hasEnrich: !!s.enrichItem,
-      hasAuth: !!(s.checkAuth && s.loginUrl),
-    }));
-    return c.json(plugins);
   });
   // ── Admin 鉴权 ───────────────────────────────────────────────────────────────
   // 验证 admin token，前端用 Authorization: Bearer <token> 调用

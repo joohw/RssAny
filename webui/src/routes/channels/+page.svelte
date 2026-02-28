@@ -154,7 +154,7 @@
     min-height: calc(100vh - 48px);
     display: flex;
     overflow: auto;
-    max-width: 960px;
+    max-width: 720px;
     width: 100%;
     margin: 0 auto;
   }
@@ -284,7 +284,7 @@
     font-size: 0.875rem;
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 600px) {
     .page {
       max-width: 100%;
     }

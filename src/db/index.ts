@@ -221,6 +221,14 @@ export async function queryFeedItems(
 }
 
 
+/** 按条目 id（guid）查询单条，供 MCP/API 获取详情 */
+export async function getItemById(id: string): Promise<DbItem | null> {
+  const db = await getDb();
+  const row = db.prepare("SELECT * FROM items WHERE id = @id").get({ id }) as DbItem | undefined;
+  return row ?? null;
+}
+
+
 /** 按单个信源 URL 查询最新条目，按发布时间降序，供 /api/feed 使用；since 限制只返回该时间点之后的条目 */
 export async function queryItemsBySource(sourceUrl: string, limit = 50, since?: Date): Promise<DbItem[]> {
   const db = await getDb();

@@ -47,8 +47,8 @@
     "@types/jsdom": "^21.1.7",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^25.2.0",
-    "eslint": "^9.15.0",
     "concurrently": "^9.2.1",
+    "eslint": "^9.15.0",
     "globals": "^15.12.0",
     "tsx": "^4.19.0",
     "typescript": "~5.6.0",
@@ -58,6 +58,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@mozilla/readability": "^0.6.0",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^16.4.7",
@@ -69,6 +70,7 @@
     "node-html-parser": "^7.0.2",
     "openai": "^4.76.1",
     "puppeteer-core": "^24.36.0",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "zod": "^4.3.6"
   }
 }
