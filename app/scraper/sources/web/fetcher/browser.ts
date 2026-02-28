@@ -1,6 +1,9 @@
 // 使用无头浏览器（Puppeteer）拉取页面，缓存逻辑在 cacher 中
 
-import { join } from "node:path";
+import { exec } from "node:child_process";
+import { platform } from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
 import { readCached, writeCached } from "../../../../core/cacher/index.js";
 import { applyPurify } from "./purify.js";
@@ -8,6 +11,8 @@ import { findChromeExecutable } from "./cdp.js";
 import type { AuthFlow } from "../../../auth/index.js";
 import type { RequestConfig, StructuredHtmlResult } from "./types.js";
 import { logger } from "../../../../core/logger/index.js";
+
+const execAsync = promisify(exec);
 
 
 /** 解析代理：优先 config.proxy，否则从 HTTP_PROXY/HTTPS_PROXY 读取 */
@@ -53,6 +58,59 @@ function launchArgs(config?: { proxy?: string; headless?: boolean }): string[] {
 function getUserDataDir(cacheDir?: string): string | undefined {
   if (!cacheDir) return undefined;
   return join(cacheDir, "browser_data", "main");
+}
+
+
+/** 是否为「userDataDir 已被占用」的报错（上次进程未正常退出或并发启动） */
+function isAlreadyRunningError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /already running/i.test(msg) && /userDataDir|user-data-dir|user data dir/i.test(msg);
+}
+
+
+/**
+ * 强制结束占用指定 userDataDir 的 Chrome/Chromium 进程（上次未正常退出时残留）。
+ * 仅在 darwin/linux 下执行；启动前调用以释放 profile 锁。
+ */
+async function killStaleChromeProcesses(absUserDataDir: string): Promise<void> {
+  const plat = platform();
+  if (plat !== "darwin" && plat !== "linux") {
+    return;
+  }
+  try {
+    // 匹配命令行中包含该 userDataDir 的进程（Chrome 使用 --user-data-dir=/path）
+    const psCmd = plat === "darwin"
+      ? `ps -eww -o pid= -o args= 2>/dev/null`
+      : `ps -eo pid,args --no-headers 2>/dev/null`;
+    const { stdout } = await execAsync(psCmd, { maxBuffer: 4 * 1024 * 1024 });
+    const pids = new Set<number>();
+    const lineRegex = /^\s*(\d+)\s+/;
+    for (const line of stdout.split("\n")) {
+      if (!line.includes(absUserDataDir)) continue;
+      const m = line.match(lineRegex);
+      if (m) pids.add(parseInt(m[1], 10));
+    }
+    if (pids.size === 0) return;
+    logger.info("source", "发现占用 browser_data 的 Chrome 进程，正在结束", { pids: [...pids], userDataDir: absUserDataDir });
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // 进程可能已退出
+      }
+    }
+    await new Promise((r) => setTimeout(r, 800));
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // ignore
+      }
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  } catch (err) {
+    logger.warn("source", "结束残留 Chrome 进程时出错", { err: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 
@@ -169,21 +227,49 @@ export async function getOrCreateBrowser(config: {
         throw new Error("未找到 Chrome 可执行文件，请安装 Google Chrome 或设置 CHROME_PATH 环境变量");
       }
       const userDataDir = getUserDataDir(config.cacheDir);
-      logger.info("source", "启动 Chrome", { headless: wantHeadless, executablePath });
-      const browser = await puppeteerCore.launch({
-        headless: wantHeadless,
-        args: launchArgs({ proxy: config.proxy, headless: wantHeadless }),
-        userDataDir,
-        executablePath,
-        ignoreDefaultArgs: ["--enable-automation"],
-      });
-      browser.on("disconnected", () => {
-        _browser = null;
-        _launchPromise = null;
-      });
-      _browser = browser;
-      _browserHeadless = wantHeadless;
-      return browser;
+      const maxRetries = 2;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt === 0 && userDataDir) {
+            const absUserDataDir = resolve(userDataDir);
+            await killStaleChromeProcesses(absUserDataDir);
+          }
+          if (attempt > 0) {
+            const waitMs = attempt * 2000;
+            logger.info("source", "userDataDir 曾被占用，等待后重试", { waitMs, attempt });
+            await new Promise((r) => setTimeout(r, waitMs));
+          }
+          logger.info("source", "启动 Chrome", { headless: wantHeadless, executablePath });
+          const browser = await puppeteerCore.launch({
+            headless: wantHeadless,
+            args: launchArgs({ proxy: config.proxy, headless: wantHeadless }),
+            userDataDir,
+            executablePath,
+            ignoreDefaultArgs: ["--enable-automation"],
+          });
+          browser.on("disconnected", () => {
+            _browser = null;
+            _launchPromise = null;
+          });
+          _browser = browser;
+          _browserHeadless = wantHeadless;
+          return browser;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < maxRetries && isAlreadyRunningError(e)) {
+            continue;
+          }
+          if (isAlreadyRunningError(e)) {
+            const dir = userDataDir ?? "browser_data/main";
+            throw new Error(
+              `Chrome 的 profile 目录已被占用（${dir}）。通常是因为上次未正常退出或同时运行了多个 RssAny 进程。请关闭占用该目录的 Chrome 进程后重试，或设置环境变量 CACHE_DIR 使用不同缓存目录。`
+            );
+          }
+          throw e;
+        }
+      }
+      throw lastErr;
     })().catch((e) => {
       _launchPromise = null;
       throw e;

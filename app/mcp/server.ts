@@ -5,7 +5,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { getAllChannelConfigs, collectAllSourceRefs } from "../core/channel/index.js";
-import { queryFeedItems, getItemById } from "../db/index.js";
+import { queryFeedItems, getItemById, queryItems } from "../db/index.js";
 
 let cachedHandler: ((request: Request) => Promise<Response>) | null = null;
 
@@ -104,6 +104,43 @@ function registerTools(server: McpServer): void {
               null,
               2,
             ),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    "search_feeds",
+    "Search feed items by full-text query (matches title, summary, content). Returns item list without full content; use get_feed_detail with item id for full content. Optional: source_url to filter by source, limit and offset for pagination.",
+    {
+      q: z.string().min(1).describe("Search query (FTS5 full-text match)"),
+      source_url: z.string().optional().describe("Filter by source URL; omit to search all"),
+      limit: z.number().min(1).max(100).optional().default(20),
+      offset: z.number().min(0).optional().default(0),
+    },
+    async (args) => {
+      const { items, total } = await queryItems({
+        q: args.q,
+        sourceUrl: args.source_url,
+        limit: args.limit ?? 20,
+        offset: args.offset ?? 0,
+      });
+      const list = items.map((it) => ({
+        id: it.id,
+        url: it.url,
+        source_url: it.source_url,
+        title: it.title,
+        author: it.author,
+        summary: it.summary,
+        pub_date: it.pub_date,
+        fetched_at: it.fetched_at,
+      }));
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ items: list, total }, null, 2),
           },
         ],
       };

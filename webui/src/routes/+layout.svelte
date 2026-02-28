@@ -4,33 +4,34 @@
   interface NavLink { href: string; label: string }
 
   const allLinks: NavLink[] = [
-    { href: '/all', label: '信息流' },
-    { href: '/web2rss', label: 'Web2RSS' },
-    { href: '/channels', label: '频道管理' },
+    { href: '/channels/all', label: '信息流' },
+    { href: '/sources', label: '信源' },
+    { href: '/channels', label: '频道' },
     { href: '/logs', label: '日志' },
-    { href: '/admin', label: 'Admin' },
+    { href: '/parse', label: 'Parse' },
+    { href: '/extractor', label: 'Enrich' },
+    { href: '/plugins', label: '插件' },
   ];
 
-  // 非信息流的固定路由前缀
-  const nonFeedPrefixes = ['/web2rss', '/channels', '/admin', '/logs', '/plugins', '/parse', '/extractor', '/preview', '/auth', '/rss', '/api'];
-
+  // 信息流：/channels/xxx（含 /channels/all）；频道配置：仅 /channels
   function isActive(link: NavLink, pathname: string): boolean {
-    if (link.href === '/all') {
-      // 信息流：当前路径不属于任何其他固定路由时激活
-      return !nonFeedPrefixes.some((p) => pathname.startsWith(p));
+    if (link.href === '/channels/all') {
+      return pathname.startsWith('/channels/');
+    }
+    if (link.href === '/channels') {
+      return pathname === '/channels';
     }
     return pathname.startsWith(link.href);
   }
 </script>
 
 <div class="topbar">
-  <a class="topbar-brand" href="/all">RssAny</a>
+  <a class="topbar-brand" href="/channels/all">RssAny</a>
   <nav class="topbar-nav">
     {#each allLinks as link}
       <a
         href={link.href}
         class:active={isActive(link, $page.url.pathname)}
-        class:admin={link.href === '/admin'}
       >{link.label}</a>
     {/each}
   </nav>
@@ -79,7 +80,4 @@
   }
   .topbar-nav a:hover { color: #111; }
   .topbar-nav a.active { color: #111; font-weight: 500; }
-  .topbar-nav a.admin { color: #999; font-size: 0.75rem; }
-  .topbar-nav a.admin:hover { color: #555; }
-  .topbar-nav a.admin.active { color: #555; }
 </style>

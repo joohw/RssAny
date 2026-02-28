@@ -3,6 +3,6 @@
   import { onMount } from 'svelte';
 
   onMount(() => {
-    goto('/all', { replaceState: true });
+    goto('/channels/all', { replaceState: true });
   });
 </script>

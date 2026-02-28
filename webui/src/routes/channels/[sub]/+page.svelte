@@ -210,13 +210,13 @@
       <a
         class="filter-chip"
         class:active={activeFilter === 'all'}
-        href="/all"
+        href="/channels/all"
       >全部</a>
       {#each channels as ch}
         <a
           class="filter-chip"
           class:active={activeFilter === ch.id}
-          href="/{ch.id}"
+          href="/channels/{ch.id}"
         >{ch.title}</a>
       {/each}
     </div>

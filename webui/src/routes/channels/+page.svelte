@@ -96,14 +96,14 @@
 </script>
 
 <svelte:head>
-  <title>频道管理 - RssAny</title>
+  <title>频道 - RssAny</title>
 </svelte:head>
 
-<div class="page">
-  <div class="col">
-    <div class="header">
+<div class="feed-wrap">
+  <div class="feed-col">
+    <div class="feed-header">
       <div class="header-left">
-        <h2>频道管理</h2>
+        <h2>频道</h2>
         <p class="page-desc">
           频道配置仅支持 JSON 编辑，直接调整 <code>channels.json</code> 内容。
         </p>
@@ -150,7 +150,7 @@
 </div>
 
 <style>
-  .page {
+  .feed-wrap {
     min-height: calc(100vh - 48px);
     display: flex;
     overflow: auto;
@@ -158,8 +158,15 @@
     width: 100%;
     margin: 0 auto;
   }
+  .feed-wrap::-webkit-scrollbar {
+    width: 4px;
+  }
+  .feed-wrap::-webkit-scrollbar-thumb {
+    background: #ddd;
+    border-radius: 2px;
+  }
 
-  .col {
+  .feed-col {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -169,7 +176,7 @@
     border-right: 1px solid #e5e7eb;
   }
 
-  .header {
+  .feed-header {
     padding: 0.875rem 1.25rem;
     border-bottom: 1px solid #f0f0f0;
     display: flex;
@@ -178,7 +185,7 @@
     gap: 1rem;
     flex-shrink: 0;
   }
-  .header h2 {
+  .feed-header h2 {
     font-size: 0.9375rem;
     font-weight: 600;
     margin: 0 0 0.15rem;
@@ -254,6 +261,13 @@
     background: transparent;
     tab-size: 2;
   }
+  .editor::-webkit-scrollbar {
+    width: 4px;
+  }
+  .editor::-webkit-scrollbar-thumb {
+    background: #ddd;
+    border-radius: 2px;
+  }
 
   .footer {
     flex-shrink: 0;
@@ -285,13 +299,13 @@
   }
 
   @media (max-width: 600px) {
-    .page {
+    .feed-wrap {
       max-width: 100%;
     }
-    .col {
+    .feed-col {
       border: none;
     }
-    .header {
+    .feed-header {
       flex-direction: column;
       align-items: stretch;
     }

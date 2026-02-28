@@ -10,13 +10,13 @@
 </script>
 
 <svelte:head>
-  <title>Extract - RssAny</title>
+  <title>Enrich - RssAny</title>
 </svelte:head>
 
 <div class="main">
   <div class="hero">
     <p class="hero-eyebrow">开发工具</p>
-    <h1 class="hero-title">Extract</h1>
+    <h1 class="hero-title">Enrich</h1>
     <p class="hero-sub">从详情页提取完整正文，返回 JSON，用于调试插件 Extractor 规则</p>
   </div>
 

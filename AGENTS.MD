@@ -30,7 +30,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 │   ├── config/             路径、adminToken 等配置
 │   ├── db/                  SQLite、FeedItem CRUD、日志表（外层统一）
 │   ├── feeder/              RSS 生成核心
-│   ├── mcp/                 MCP 服务（stdio，list_channels / get_channel_feeds / get_feed_detail）
+│   ├── mcp/                 MCP 服务（stdio，list_channels / get_channel_feeds / get_feed_detail / search_feeds）
 │   ├── scraper/             抓取与信源
 │   │   ├── sources/        getSource、web/api/email
 │   │   │   ├── web/        Site 插件、fetcher/parser/extractor/pluginLoader
@@ -81,7 +81,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 ### MCP 服务
 - **入口**：与主站同进程，路径 **`GET/POST /mcp`**，采用 **Streamable HTTP（SSE）** 传输；客户端 GET 建立 SSE、POST 发送 JSON-RPC。
-- **工具**：`list_channels`（频道列表 id/title/description）、`get_channel_feeds`（指定频道或全部的条目列表，不含 content）、`get_feed_detail`（按 item_id 返回单条完整详情含 content）。
+- **工具**：`list_channels`（频道列表 id/title/description）、`get_channel_feeds`（指定频道或全部的条目列表，不含 content）、`get_feed_detail`（按 item_id 返回单条完整详情含 content）、`search_feeds`（全文搜索 title/summary/content，支持 source_url 过滤与分页）。
 - **数据**：复用 .rssany/channels.json 与 SQLite，与 HTTP API 同源。实现见 `src/mcp/server.ts`。
 
 ### app（HTTP 路由层）
@@ -90,7 +90,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
   - `/rss/*`：生成 RSS XML
   - `/parse/*`、`/extractor/*`：开发调试工具（同时有独立 HTML 页面）
   - `/feed`、`/subscriptions`、`/plugins`：管理页面
-  - **`/mcp`**：MCP 服务（Streamable HTTP/SSE，工具 list_channels / get_channel_feeds / get_feed_detail）
+  - **`/mcp`**：MCP 服务（Streamable HTTP/SSE，工具 list_channels / get_channel_feeds / get_feed_detail / search_feeds）
   - `/api/items`：数据库条目查询（含 FTS 全文搜索）
   - `/api/items/pending-push`、`/api/items/mark-pushed`：OpenWebUI 推送接口
   - `/auth/*`：认证管理

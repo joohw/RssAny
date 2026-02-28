@@ -27,7 +27,9 @@
     loadError = '';
     try {
       const res = await fetch('/api/plugins');
-      plugins = await res.json();
+      const list = await res.json() as Plugin[];
+      // 需要登录的放前面
+      plugins = [...list].sort((a, b) => (b.hasAuth ? 1 : 0) - (a.hasAuth ? 1 : 0));
     } catch (err) {
       loadError = '加载失败: ' + (err instanceof Error ? err.message : String(err));
     } finally {
@@ -35,8 +37,9 @@
     }
   }
 
-  async function checkAuth(plugin: Plugin) {
-    plugin = { ...plugin }; // reactivity
+  async function checkAuth(plugin: Plugin, e: Event) {
+    e.preventDefault();
+    e.stopPropagation();
     try {
       const res = await fetch(`/auth/check?siteId=${encodeURIComponent(plugin.id)}`);
       const result = await res.json();
@@ -50,7 +53,9 @@
     }
   }
 
-  async function openLogin(plugin: Plugin) {
+  async function openLogin(plugin: Plugin, e: Event) {
+    e.preventDefault();
+    e.stopPropagation();
     try {
       const res = await fetch(`/auth/open?siteId=${encodeURIComponent(plugin.id)}`, { method: 'POST' });
       const result = await res.json();
@@ -68,144 +73,150 @@
 </script>
 
 <svelte:head>
-  <title>插件管理 - RssAny</title>
+  <title>插件 - RssAny</title>
 </svelte:head>
 
-<div class="container">
-  <div class="page-header">
-    <h1>插件管理</h1>
-    <p class="page-desc">插件扩展了 RssAny 对特定站点的支持，无需修改核心代码即可接入新站点或 API</p>
-  </div>
+<div class="feed-wrap">
+  <div class="feed-col">
+    <div class="feed-header">
+      <h2>插件</h2>
+      <p class="sub">已加载的站点插件，需登录的站点可在此检查或打开登录页</p>
+    </div>
 
-  <div class="info-box">
-    <strong>插件的用途</strong>：每个插件对应一类 URL 模式，实现 <code>fetchItems</code> 返回条目列表，可选实现 <code>enrichItem</code> 在后台异步补全正文。
-    <ul>
-      <li>在 <code>plugins/</code> 目录新建 <code>xxx.rssany.js</code> 即可自动加载</li>
-      <li><strong>正文提取</strong> — 插件实现了 <code>enrichItem</code>，支持后台异步补全正文内容</li>
-      <li><strong>需要登录</strong> — 该站点需要身份认证，可在此处检查或打开登录页完成授权</li>
-    </ul>
-  </div>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>插件 ID</th>
-          <th>URL 模式</th>
-          <th>能力</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {#if loading}
-          <tr><td colspan="4" class="loading-cell">加载中…</td></tr>
-        {:else if loadError}
-          <tr><td colspan="4" class="error-cell">{loadError}</td></tr>
-        {:else if plugins.length === 0}
-          <tr><td colspan="4" class="empty-cell">暂无插件，请在 plugins/ 目录添加 *.rssany.js 文件</td></tr>
-        {:else}
-          {#each plugins as plugin (plugin.id)}
-            <tr>
-              <td class="td-id">{plugin.id}</td>
-              <td class="td-pattern">{plugin.listUrlPattern}</td>
-              <td class="td-caps">
-                {#if plugin.hasAuth}
-                  <span class="badge badge-auth">需要登录</span>
-                {/if}
-                {#if plugin.hasEnrich}
-                  <span class="badge badge-enrich">正文提取</span>
-                {/if}
-                {#if !plugin.hasAuth && !plugin.hasEnrich}
-                  <span style="color:#ccc;font-size:0.75rem">—</span>
-                {/if}
-              </td>
-              <td class="td-actions">
-                {#if plugin.hasAuth}
-                  <button class="btn btn-secondary" on:click={() => checkAuth(plugin)}>检查登录</button>
-                  <button class="btn btn-primary" on:click={() => openLogin(plugin)}>打开登录页</button>
-                {/if}
-              </td>
-            </tr>
-          {/each}
-        {/if}
-      </tbody>
-    </table>
+    {#if loading}
+      <div class="state">加载中…</div>
+    {:else if loadError}
+      <div class="state error">{loadError}</div>
+    {:else if plugins.length === 0}
+      <div class="state">暂无插件，请在 plugins/ 目录添加 *.rssany.js 文件</div>
+    {:else}
+      <div class="list">
+        {#each plugins as plugin (plugin.id)}
+          <div class="row">
+            <div class="row-main">
+              <span class="row-id">{plugin.id}</span>
+              <span class="row-pattern" title={plugin.listUrlPattern}>{plugin.listUrlPattern}</span>
+            </div>
+            {#if plugin.hasAuth}
+              <div class="row-actions">
+                <button type="button" class="btn btn-secondary" on:click={(e) => checkAuth(plugin, e)}>检查登录</button>
+                <button type="button" class="btn btn-primary" on:click={(e) => openLogin(plugin, e)}>打开登录页</button>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 </div>
 
 {#if toast}
-  <div class="toast show {toastType}">{toast}</div>
+  <div class="toast {toastType}">{toast}</div>
 {/if}
 
 <style>
-  .container {
-    max-width: 860px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem;
-  }
-  .page-header { margin-bottom: 1.75rem; }
-  .page-header h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.3rem; }
-  .page-desc { font-size: 0.8125rem; color: #888; line-height: 1.6; }
-
-  .info-box {
-    background: #f8f9ff;
-    border: 1px solid #dde4ff;
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.75rem;
-    font-size: 0.8125rem;
-    color: #555;
-    line-height: 1.7;
-  }
-  .info-box strong { color: #111; }
-  .info-box code { background: #eef; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.8rem; font-family: monospace; }
-  .info-box ul { padding-left: 1.2rem; margin-top: 0.4rem; }
-  .info-box li { margin-bottom: 0.2rem; }
-
-  .table-wrap {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
+  .feed-wrap {
+    height: calc(100vh - 48px);
+    display: flex;
     overflow: hidden;
-    margin-bottom: 1rem;
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
   }
-  table { width: 100%; border-collapse: collapse; }
-  thead th {
-    background: #fafafa;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.6rem 1rem;
-    text-align: left;
+  .feed-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+    border-left: 1px solid #e5e7eb;
+    border-right: 1px solid #e5e7eb;
+  }
+
+  .feed-header {
+    padding: 0.875rem 1.25rem;
     border-bottom: 1px solid #f0f0f0;
+    flex-shrink: 0;
   }
-  tbody :global(tr) { border-bottom: 1px solid #f5f5f5; transition: background 0.1s; }
-  tbody :global(tr:last-child) { border-bottom: none; }
-  tbody :global(tr:hover) { background: #fafafa; }
-  :global(td) { padding: 0.75rem 1rem; font-size: 0.875rem; vertical-align: middle; }
-
-  .td-id { font-weight: 600; color: #111; white-space: nowrap; }
-  .td-pattern { font-family: monospace; font-size: 0.78rem; color: #555; word-break: break-all; max-width: 280px; }
-  .td-caps { white-space: nowrap; }
-  .td-actions { white-space: nowrap; text-align: right; }
-
-  .badge {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.72rem;
-    font-weight: 500;
-    margin-right: 0.25rem;
+  .feed-header h2 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem;
   }
-  .badge-auth { background: #fff7e0; color: #92640a; border: 1px solid #f0d080; }
-  .badge-enrich { background: #e6f9ee; color: #1a7f37; border: 1px solid #a8e6be; }
+  .sub {
+    font-size: 0.75rem;
+    color: #aaa;
+    margin: 0;
+  }
 
-  .btn {
-    display: inline-flex;
+  .state {
+    flex: 1;
+    display: flex;
     align-items: center;
-    gap: 0.3rem;
+    justify-content: center;
+    text-align: center;
+    padding: 1.5rem;
+    color: #888;
+    font-size: 0.875rem;
+  }
+  .state.error {
+    color: #c53030;
+  }
+
+  .list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .list::-webkit-scrollbar { width: 4px; }
+  .list::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+  .row:last-child {
+    border-bottom: none;
+  }
+  .row:hover {
+    background: #fafafa;
+  }
+
+  .row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .row-id {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #111;
+  }
+  .row-pattern {
+    font-size: 0.78rem;
+    font-family: monospace;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+  .btn {
     padding: 0.35rem 0.7rem;
     border: none;
     border-radius: 5px;
@@ -216,11 +227,8 @@
   }
   .btn-primary { background: #111; color: #fff; }
   .btn-primary:hover { background: #333; }
-  .btn-secondary { background: #f0f0f0; color: #333; margin-right: 0.35rem; }
+  .btn-secondary { background: #f0f0f0; color: #333; }
   .btn-secondary:hover { background: #e0e0e0; }
-
-  .loading-cell, .empty-cell { text-align: center; color: #bbb; padding: 2rem; font-size: 0.875rem; }
-  .error-cell { text-align: center; color: #c00; padding: 2rem; font-size: 0.875rem; }
 
   .toast {
     position: fixed;
@@ -239,8 +247,10 @@
   .toast.error { background: #c0392b; }
   .toast.success { background: #1a7f37; }
 
-  @media (max-width: 640px) {
-    .td-pattern { display: none; }
-    thead th:nth-child(2) { display: none; }
+  @media (max-width: 600px) {
+    .feed-wrap { max-width: 100%; }
+    .feed-col { border: none; }
+    .row { flex-wrap: wrap; }
+    .row-pattern { display: none; }
   }
 </style>

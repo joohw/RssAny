@@ -1,7 +1,11 @@
-// Router：Hono 实现，与 feeder 解耦，仅负责 HTTP 层
+// App 入口：Hono 服务，与 feeder 解耦；可替换为 Express 等
 
-import { readFile } from "node:fs/promises";
+import "dotenv/config";
+import { watch } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
+import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getRss } from "../feeder/index.js";
@@ -10,8 +14,9 @@ import { getSourcesRaw, saveSourcesFile } from "../scraper/subscription/index.js
 import type { SourceType } from "../scraper/subscription/types.js";
 import type { RefreshInterval } from "../utils/refreshInterval.js";
 import { VALID_INTERVALS } from "../utils/refreshInterval.js";
-import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promises";
-import { CHANNELS_CONFIG_PATH } from "../config/paths.js";
+import { initSources as initSites } from "../scraper/sources/index.js";
+import { initScheduler } from "../scraper/scheduler/index.js";
+import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CHANNELS_CONFIG_PATH } from "../config/paths.js";
 import { getAllChannelConfigs, collectAllSourceRefs } from "../core/channel/index.js";
 import { extractFromLink } from "../scraper/sources/web/extractor/index.js";
 import { ensureAuth, preCheckAuth, getOrCreateBrowser } from "../scraper/sources/web/fetcher/index.js";
@@ -21,13 +26,15 @@ import { getEffectiveItemFields, type ItemTranslationFields } from "../types/fee
 import { AuthRequiredError, NotFoundError } from "../scraper/auth/index.js";
 import { queryItems, queryFeedItems, getPendingPushItems, markPushed, queryLogs } from "../db/index.js";
 import { enrichQueue } from "../scraper/enrich/index.js";
-import { getAdminToken } from "../config/adminToken.js";
 import { logger } from "../core/logger/index.js";
 import { createMcpHandler } from "../mcp/server.js";
 
 
+const PORT = Number(process.env.PORT) || 3751;
+const IS_DEV = process.env.NODE_ENV === "development" || process.argv.includes("--watch");
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
 const STATICS_DIR = join(process.cwd(), "statics");
+const PLUGIN_WATCH_EXTS = [".rssany.js", ".rssany.ts"];
 
 
 /** 从路径提取 URL（与 /rss/* 一致） */
@@ -49,7 +56,6 @@ async function readStaticHtml(name: string, fallback: string): Promise<string> {
 }
 
 
-
 /** HTML 转义，用于注入到页面中的不可信内容 */
 function escapeHtml(s: string): string {
   return s
@@ -62,7 +68,7 @@ function escapeHtml(s: string): string {
 
 
 /** 创建 Hono 应用，feeder 通过参数注入便于测试与换框架 */
-export function createApp(getRssFn: typeof getRss = getRss) {
+function createApp(getRssFn: typeof getRss = getRss) {
   const app = new Hono();
   // MCP：Streamable HTTP（SSE），GET 建 SSE / POST 发 JSON-RPC
   app.all("/mcp", async (c) => {
@@ -139,11 +145,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     return c.json({ ...result, items });
   });
   // API：分页查询首页信息流（纯 DB 查询，基于 channels.json，不触发实时抓取）
-  // - limit：每页条数，默认 50，最大 200
-  // - offset：分页偏移，默认 0
-  // - sub 或 channel：频道 id 过滤，省略或 all 则返回所有频道的 sourceRefs 并集
-  // - 返回：{ channels（元数据）, items（含 sub_id/sub_title）, hasMore }
-  // - lng：目标语种（BCP 47），有译文时 title/summary/content 使用译文
   app.get("/api/feed", async (c) => {
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const offset = Number(c.req.query("offset") ?? 0);
@@ -188,7 +189,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     });
     return c.json({ channels: channelsMeta, items, hasMore });
   });
-  // SSE：推送后台抓取进度，客户端通过 EventSource 实时感知新条目
+  // SSE：推送后台抓取进度
   app.get("/api/events", (c) => {
     return streamSSE(c, async (stream) => {
       await stream.writeSSE({ data: JSON.stringify({ type: "connected" }) });
@@ -205,13 +206,11 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       await new Promise<void>((resolve) => stream.onAbort(resolve));
     });
   });
-  // API：获取待推送给 OpenWebUI 的条目（content 不为空且未推送）
   app.get("/api/items/pending-push", async (c) => {
     const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
     const items = await getPendingPushItems(limit);
     return c.json({ items, count: items.length });
   });
-  // API：标记条目已推送（body: { ids: string[] }）
   app.post("/api/items/mark-pushed", async (c) => {
     try {
       const { ids } = await c.req.json<{ ids?: string[] }>();
@@ -222,7 +221,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
     }
   });
-  // API：查询日志（按 level/category/source_url/since 筛选，分页）
   app.get("/api/logs", async (c) => {
     const levelParam = c.req.query("level");
     const level = levelParam === "error" || levelParam === "warn" || levelParam === "info" || levelParam === "debug" ? levelParam : undefined;
@@ -236,15 +234,9 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const result = await queryLogs({ level, category: category as import("../core/logger/types.js").LogCategory | undefined, source_url, limit, offset, since });
     return c.json(result);
   });
-  // ── Admin 鉴权 ───────────────────────────────────────────────────────────────
-  // 验证 admin token，前端用 Authorization: Bearer <token> 调用
   app.get("/api/admin/verify", async (c) => {
-    const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
-    const adminToken = await getAdminToken();
-    if (token && token === adminToken) return c.json({ ok: true });
-    return c.json({ ok: false }, 401);
+    return c.json({ ok: true });
   });
-  // ── 爬虫配置（sources.json）原始 JSON 读写（新格式：{ sources: [] }，供脚本/调试）────────────────
   app.get("/api/sources/raw", async (c) => {
     try {
       const raw = await getSourcesRaw();
@@ -280,10 +272,9 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
     }
   });
-  // ── 频道配置（channels.json）原始 JSON 读写 ────────────────────────────────────
   app.get("/api/channels/raw", async (c) => {
     try {
-      const raw = await readFileFs(CHANNELS_CONFIG_PATH, "utf-8");
+      const raw = await readFile(CHANNELS_CONFIG_PATH, "utf-8");
       return c.text(raw, 200, { "Content-Type": "application/json; charset=utf-8" });
     } catch {
       return c.text("{}", 200, { "Content-Type": "application/json; charset=utf-8" });
@@ -293,14 +284,13 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     try {
       const raw = await c.req.text();
       JSON.parse(raw);
-      await writeFileFs(CHANNELS_CONFIG_PATH, raw, "utf-8");
+      await writeFile(CHANNELS_CONFIG_PATH, raw, "utf-8");
       return c.json({ ok: true });
     } catch (err) {
       return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
     }
   });
-  // ── 认证 ──────────────────────────────────────────────────────────────────────
-  // 检查登录状态
+  // 认证
   app.get("/auth/check", async (c) => {
     const siteIdParam = c.req.query("siteId");
     if (!siteIdParam) {
@@ -318,7 +308,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       return c.json({ ok: false, message: `检查失败: ${msg}` }, 500);
     }
   });
-  // 打开登录页面：复用浏览器单例（若无头则切换为有头），新开 Tab 导航到登录页
   app.post("/auth/open", async (c) => {
     const siteIdParam = c.req.query("siteId");
     if (!siteIdParam) {
@@ -340,7 +329,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     });
     return c.json({ ok: true, message: "已打开登录页面" });
   });
-  /** 触发有头浏览器登录：支持 url= 或 siteId=，后台执行 ensureAuth，立即返回 */
   app.post("/auth/ensure", async (c) => {
     const urlParam = c.req.query("url");
     const siteIdParam = c.req.query("siteId");
@@ -360,12 +348,10 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     ensureAuth(authFlow, CACHE_DIR).then(() => logger.info("auth", "ensureAuth 完成")).catch((e) => logger.warn("auth", "ensureAuth 失败", { err: e instanceof Error ? e.message : String(e) }));
     return c.json({ ok: true, message: "已打开登录窗口，请在弹出的浏览器中完成登录，完成后刷新订阅页面即可。" });
   });
-  // ── 错误页渲染辅助（仍使用 statics/ 中的 401/404.html）────────────────────────
   async function render401(listUrl: string): Promise<string> {
     const raw = await readStaticHtml("401", "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>401</title></head><body><h1>401 需要登录</h1></body></html>");
     return raw.replace(/\{\{listUrl\}\}/g, escapeHtml(listUrl));
   }
-  // ── 后端数据 API（/parse/* /extractor/* /rss/*）────────────────────────────────
   app.get("/parse/*", async (c) => {
     const url = parseUrlFromPath(c.req.path, "/parse");
     if (!url) return c.text("无效 URL，格式: /parse/https://... 或 /parse/example.com/...", 400);
@@ -396,7 +382,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
       const site = getBestSite(url);
       if (site?.enrichItem) {
-        // 插件有 enrichItem：构造桩 FeedItem 调用插件
         const siteCtx = buildSiteContext(site, { cacheDir: CACHE_DIR, headless });
         const stub: FeedItem = { guid: url, title: "", link: url, pubDate: new Date() };
         const enriched = await site.enrichItem(stub, siteCtx);
@@ -408,7 +393,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
           _extractor: site.id,
         });
       }
-      // 降级：Readability 提取
       const proxy = site?.proxy;
       const result = await extractFromLink(url, {}, { timeoutMs: 60_000, headless, proxy });
       return c.json({
@@ -449,3 +433,44 @@ export function createApp(getRssFn: typeof getRss = getRss) {
   });
   return app;
 }
+
+
+/** 开发模式：监听内置与用户插件目录变化并自动重载（防抖 300ms） */
+function watchPlugins(): void {
+  let reloadTimer: NodeJS.Timeout | null = null;
+  const debouncedReload = async () => {
+    if (reloadTimer) clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(async () => {
+      try {
+        await initSites();
+      } catch (err) {
+        logger.error("plugin", "插件重新加载失败", { err: err instanceof Error ? err.message : String(err) });
+      }
+    }, 300);
+  };
+  for (const dir of [BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR]) {
+    const watcher = watch(dir, { recursive: false }, (eventType, filename) => {
+      if (!filename || !PLUGIN_WATCH_EXTS.some((ext) => filename.endsWith(ext))) return;
+      if (eventType === "rename" || eventType === "change") debouncedReload();
+    });
+    watcher.on("error", (err) => {
+      logger.warn("plugin", "插件目录监听错误", { dir, err: err.message });
+    });
+  }
+}
+
+
+async function main() {
+  await initUserDir();
+  await initSites();
+  await initScheduler(CACHE_DIR);
+  const app = createApp();
+  serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" });
+  console.log(`API 服务已启动 http://127.0.0.1:${PORT}/`);
+  const lanIp = Object.values(networkInterfaces()).flat().find((iface) => iface?.family === "IPv4" && !iface.internal)?.address;
+  if (lanIp) console.log(`局域网访问 http://${lanIp}:${PORT}/`);
+  if (IS_DEV) {
+    watchPlugins();
+  }
+}
+main();

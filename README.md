@@ -79,12 +79,7 @@ pnpm start
 cd webui && pnpm preview --port 5173
 ```
 
-服务默认监听 `http://localhost:3751`（仅作为 API + RSS 端点）。启动时会输出 Admin Token，用于访问管理功能：
-
-```
-RssAny 本机: http://127.0.0.1:3751/
-[Admin] Token: a3f8c2...  →  http://127.0.0.1:5173/admin
-```
+服务默认监听 `http://localhost:3751`（仅作为 API + RSS 端点）。
 
 ## WebUI
 
@@ -93,20 +88,12 @@ RssAny 本机: http://127.0.0.1:3751/
 | 页面 | 说明 |
 |------|------|
 | **信息流** | 多源聚合时间线，实时推送新内容 |
-| **Web2RSS** | 输入任意网页 URL，生成 RSS 订阅源 |
-| **频道管理** | 编辑 `channels.json`，配置首页信息流要聚合的频道 |
-| **Admin** | 需要 Token 验证，包含开发工具与插件管理 |
-
-### Admin 页面
-
-Admin 需要服务器启动时输出的 Token 才能进入（Token 保存在 `.rssany/admin-token.txt`，重启不变）。包含以下功能：
-
-- **RSS** — 测试 Web2RSS 转换（支持 Headful 模式）
-- **Parse** — 解析列表页，返回条目 JSON（支持 Headful）
-- **Extract** — 提取详情页正文，返回 JSON（支持 Headful）
-- **插件** — 查看已加载插件，检查登录状态，打开有头浏览器完成授权
-
-**Headful 模式**：勾选后使用有头浏览器（可见窗口）加载页面，便于调试与手动登录。登录完成后 cookies 自动保存，后续请求无需重复登录。
+| **信源** | 展示频道中所有可用的订阅源（ref），点击进入预览 |
+| **频道** | 编辑 `channels.json`，配置首页信息流要聚合的频道 |
+| **日志** | 查看运行日志 |
+| **Parse** | 开发工具：从列表页解析条目，返回 JSON |
+| **Enrich** | 开发工具：从详情页提取正文，返回 JSON |
+| **插件** | 已加载插件列表与登录状态 |
 
 ## 使用
 
@@ -192,7 +179,6 @@ export default {
 └── .rssany/          用户数据目录（自动创建，gitignore）
     ├── sources.json
     ├── channels.json
-    ├── admin-token.txt
     ├── plugins/
     └── data/rssany.db
 ```
