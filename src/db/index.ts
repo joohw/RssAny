@@ -68,6 +68,19 @@ function initSchema(db: Database.Database): void {
       content='items',
       content_rowid='rowid'
     );
+    CREATE TRIGGER IF NOT EXISTS items_fts_after_insert AFTER INSERT ON items
+    BEGIN
+      INSERT INTO items_fts(rowid, title, summary, content) VALUES (NEW.rowid, NEW.title, NEW.summary, NEW.content);
+    END;
+    CREATE TRIGGER IF NOT EXISTS items_fts_after_update AFTER UPDATE ON items
+    BEGIN
+      DELETE FROM items_fts WHERE rowid = OLD.rowid;
+      INSERT INTO items_fts(rowid, title, summary, content) VALUES (NEW.rowid, NEW.title, NEW.summary, NEW.content);
+    END;
+    CREATE TRIGGER IF NOT EXISTS items_fts_after_delete AFTER DELETE ON items
+    BEGIN
+      DELETE FROM items_fts WHERE rowid = OLD.rowid;
+    END;
     CREATE TABLE IF NOT EXISTS logs (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       level       TEXT NOT NULL,

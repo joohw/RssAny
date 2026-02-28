@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "rssany": {
+      "url": "http://localhost:3751/mcp"
+    }
+  }
+}

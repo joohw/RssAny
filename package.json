@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "vite build",
-    "dev": "concurrently -k -n WEB,API -c cyan,green \"npm run webui:dev\" \"npm run dev:api\"",
+    "dev": "concurrently -k -n API,WEB -c green,cyan \"npm run dev:api\" \"sleep 2 && npm run webui:dev\"",
     "dev:api": "NODE_ENV=development tsx --watch src/app/index.ts",
     "dev:build": "vite build --watch",
     "start": "node dist/index.js",

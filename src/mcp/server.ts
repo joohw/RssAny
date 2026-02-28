@@ -1,4 +1,5 @@
 // MCP 服务：基于 Streamable HTTP（SSE），提供 list_channels / get_channel_feeds / get_feed_detail 工具
+// 使用 stateless 模式：每个请求新建 transport+server，避免 Cursor 等多客户端/重试时触发 "Server already initialized"
 
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -112,26 +113,27 @@ function registerTools(server: McpServer): void {
 
 /**
  * 创建 MCP Streamable HTTP 处理器，供 Hono 挂到 GET/POST /mcp。
- * 使用 SSE（Streamable HTTP）传输，客户端通过 GET 建立 SSE、POST 发送 JSON-RPC。
+ * 使用 stateless 模式：每个请求新建 transport+server，避免多连接/重试时 "Server already initialized"。
+ * 客户端通过 GET 建立 SSE、POST 发送 JSON-RPC。
  */
 export async function createMcpHandler(): Promise<
   (request: Request) => Promise<Response>
 > {
   if (cachedHandler) return cachedHandler;
 
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-  });
+  const handler = async (request: Request): Promise<Response> => {
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless：每个请求独立，可重复 initialize
+    });
+    const server = new McpServer(
+      { name: "rssany", version: "0.1.0" },
+      { capabilities: { tools: {} } },
+    );
+    registerTools(server);
+    await server.connect(transport);
+    return transport.handleRequest(request);
+  };
 
-  const server = new McpServer(
-    { name: "rssany", version: "0.1.0" },
-    { capabilities: { tools: {} } },
-  );
-
-  registerTools(server);
-  await server.connect(transport);
-
-  const handler = (request: Request) => transport.handleRequest(request);
   cachedHandler = handler;
   return handler;
 }
