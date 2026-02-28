@@ -1,7 +1,25 @@
-// Feeder 配置与返回类型
+// Feeder 配置与返回类型 + RSS 2.0 输出结构
 
 import type { FeedItem } from "../types/feedItem.js";
 import type { RefreshInterval } from "../utils/refreshInterval.js";
+
+
+/** RSS 2.0 频道（用于 buildRssXml） */
+export interface RssChannel {
+  title: string;
+  link: string;
+  description?: string;
+  language?: string;
+}
+
+/** RSS 2.0 条目（用于 buildRssXml） */
+export interface RssEntry {
+  title: string;
+  link: string;
+  description: string;
+  guid?: string;
+  published?: string;
+}
 
 
 export interface FeederConfig {
@@ -17,6 +35,8 @@ export interface FeederConfig {
   proxy?: string;
   /** 为 true 时写入数据库（upsertItems / updateItemContent），默认不写入 */
   writeDb?: boolean;
+  /** 目标语种（BCP 47，如 zh-CN、en）；有值时 RSS/API 优先使用 item.translations[lng] */
+  lng?: string;
 }
 
 

@@ -1,18 +1,16 @@
-// 将单条 FeedItem 写入 Signal 仓库为 Markdown 文件（不执行 git 操作）
+// 将单条 FeedItem 写入配置目录为 Markdown 文件（不执行 git 操作）
 
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
-import { loadSignalConfig } from "./config.js";
+import { loadWriterConfig } from "./config.js";
 import { logger } from "../core/logger/index.js";
-
 
 /** 由 link 生成稳定、仅作唯一标识的文件名（无元信息），16 位 hex */
 export function itemToStableId(item: FeedItem): string {
   return createHash("sha256").update(item.link, "utf8").digest("hex").slice(0, 16);
 }
-
 
 /** 将 contentHtml 中常见块级标签转为换行，便于在 Markdown 中可读；不做完整 HTML→MD 转换 */
 function htmlToMarkdownBody(html: string): string {
@@ -26,7 +24,6 @@ function htmlToMarkdownBody(html: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
-
 
 /** 从已有 .md 文件中解析出的 frontmatter 的 sources 列表（简单实现，不依赖 YAML 库） */
 async function readExistingSources(absPath: string): Promise<string[]> {
@@ -48,9 +45,8 @@ async function readExistingSources(absPath: string): Promise<string[]> {
   }
 }
 
-
 /** 根据 FeedItem 与 sourceUrl 生成符合约定的 Markdown 字符串 */
-export function buildSignalMarkdown(item: FeedItem, sourceUrl: string, existingSources: string[] = []): string {
+export function buildItemMarkdown(item: FeedItem, sourceUrl: string, existingSources: string[] = []): string {
   const sources = Array.from(new Set([...existingSources, sourceUrl]));
   const pubDate = item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? "");
   const front: Record<string, unknown> = {
@@ -85,7 +81,6 @@ export function buildSignalMarkdown(item: FeedItem, sourceUrl: string, existingS
   return lines.join("\n");
 }
 
-
 /** 从条目取日期字符串 YYYY-MM-DD，用于按日分目录；无 pubDate 时用当天 */
 function getDateSegment(item: FeedItem): string {
   const d = item.pubDate instanceof Date ? item.pubDate : item.pubDate ? new Date(item.pubDate) : new Date();
@@ -95,12 +90,11 @@ function getDateSegment(item: FeedItem): string {
   return `${y}-${m}-${day}`;
 }
 
-
-/** 将一条条目投递到 Signal 仓库（写入 items/YYYY-MM-DD/<id>.md）；sourceUrl 取自 item.sourceRef，未设则跳过。 */
+/** 将一条条目写入配置目录（items/YYYY-MM-DD/<id>.md）；sourceUrl 取自 item.sourceRef，未设则跳过。 */
 export async function writeItem(item: FeedItem): Promise<void> {
   const sourceUrl = item.sourceRef;
   if (!sourceUrl) return;
-  const config = await loadSignalConfig();
+  const config = await loadWriterConfig();
   if (!config.enabled || !config.repoPath) return;
   const dateSegment = getDateSegment(item);
   const dir = join(config.repoPath, "items", dateSegment);
@@ -113,18 +107,17 @@ export async function writeItem(item: FeedItem): Promise<void> {
   } catch {
     // 文件不存在或读取失败，当作新文件
   }
-  const md = buildSignalMarkdown(item, sourceUrl, existingSources);
+  const md = buildItemMarkdown(item, sourceUrl, existingSources);
   await writeFile(absPath, md, "utf-8");
 }
 
-
-/** 批量投递；失败仅打日志，不抛错；每条按 item.sourceRef 投递。 */
+/** 批量写入；失败仅打日志，不抛错；每条按 item.sourceRef 写入。 */
 export async function writeItems(items: FeedItem[]): Promise<void> {
   for (const item of items) {
     try {
       await writeItem(item);
     } catch (err) {
-      logger.warn("signal", "投递单条失败", {
+      logger.warn("writer", "写单条失败", {
         url: item.link,
         source_ref: item.sourceRef,
         err: err instanceof Error ? err.message : String(err),

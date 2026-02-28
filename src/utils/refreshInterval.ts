@@ -1,6 +1,6 @@
 // RefreshInterval：类型定义 + interval → ms 转换，供全项目共用
 
-import type { CacheKeyStrategy } from "../sources/web/fetcher/types.js";
+import type { CacheKeyStrategy } from "../scraper/sources/web/fetcher/types.js";
 
 
 /** 刷新间隔类型（有时间语义的缓存策略，排除 forever） */

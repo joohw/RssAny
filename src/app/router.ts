@@ -6,20 +6,24 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getRss } from "../feeder/index.js";
-import { onFeedUpdated } from "../events/index.js";
-import { getSourcesRaw, saveSourcesFile } from "../subscription/index.js";
+import { onFeedUpdated } from "../core/events/index.js";
+import { getSourcesRaw, saveSourcesFile } from "../scraper/subscription/index.js";
+import type { SourceType } from "../scraper/subscription/types.js";
+import type { RefreshInterval } from "../utils/refreshInterval.js";
+import { VALID_INTERVALS } from "../utils/refreshInterval.js";
 import { readFile as readFileFs, writeFile as writeFileFs } from "node:fs/promises";
 import { CHANNELS_CONFIG_PATH } from "../config/paths.js";
-import { getAllChannelConfigs, collectAllSourceRefs } from "../channel/index.js";
-import { extractFromLink } from "../sources/web/extractor/index.js";
-import { ensureAuth, preCheckAuth, getOrCreateBrowser } from "../sources/web/fetcher/index.js";
-import { getWebSite, getBestSite, getPluginSites, toAuthFlow, buildSiteContext } from "../sources/web/index.js";
+import { getAllChannelConfigs, collectAllSourceRefs } from "../core/channel/index.js";
+import { extractFromLink } from "../scraper/sources/web/extractor/index.js";
+import { ensureAuth, preCheckAuth, getOrCreateBrowser } from "../scraper/sources/web/fetcher/index.js";
+import { getWebSite, getBestSite, getPluginSites, toAuthFlow, buildSiteContext } from "../scraper/sources/web/index.js";
 import type { FeedItem } from "../types/feedItem.js";
-import { AuthRequiredError, NotFoundError } from "../auth/index.js";
+import { getEffectiveItemFields, type ItemTranslationFields } from "../types/feedItem.js";
+import { AuthRequiredError, NotFoundError } from "../scraper/auth/index.js";
 import { queryItems, queryFeedItems, getPendingPushItems, markPushed, queryLogs } from "../db/index.js";
-import { enrichQueue } from "../enrich/index.js";
+import { enrichQueue } from "../scraper/enrich/index.js";
 import { getAdminToken } from "../config/adminToken.js";
-import { logger } from "../logger/index.js";
+import { logger } from "../core/logger/index.js";
 
 
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
@@ -72,24 +76,28 @@ function escapeHtml(s: string): string {
 /** 创建 Hono 应用，feeder 通过参数注入便于测试与换框架 */
 export function createApp(getRssFn: typeof getRss = getRss) {
   const app = new Hono();
-  // API：以 JSON 格式返回 RSS 条目（供 preview 页面轮询使用）
+  // API：以 JSON 格式返回 RSS 条目（供 preview 页面轮询使用）；支持 lng 取译文
   app.get("/api/rss", async (c) => {
     const url = c.req.query("url");
     if (!url) return c.json({ error: "url 参数缺失" }, 400);
     const headlessParam = c.req.query("headless");
     const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
+    const lng = c.req.query("lng") ?? undefined;
     try {
-      const result = await getRssFn(url, { cacheDir: CACHE_DIR, headless });
+      const result = await getRssFn(url, { cacheDir: CACHE_DIR, headless, lng });
       return c.json({
         fromCache: result.fromCache,
-        items: result.items.map((item) => ({
-          guid: item.guid,
-          title: item.title,
-          link: item.link,
-          summary: item.summary,
-          author: item.author,
-          pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : item.pubDate,
-        })),
+        items: result.items.map((item) => {
+          const { title, summary } = lng ? getEffectiveItemFields(item, lng) : { title: item.title, summary: item.summary ?? "" };
+          return {
+            guid: item.guid,
+            title,
+            link: item.link,
+            summary,
+            author: item.author,
+            pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : item.pubDate,
+          };
+        }),
       });
     } catch (err) {
       if (err instanceof AuthRequiredError) return c.json({ error: "需要登录", code: "AUTH_REQUIRED" }, 401);
@@ -104,24 +112,40 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     if (!task) return c.json({ error: "任务不存在或已过期" }, 404);
     return c.json(task);
   });
-  // API：查询数据库条目列表（支持 source_url / q 过滤、分页）
+  // API：查询数据库条目列表（支持 source_url / q 过滤、分页）；支持 lng 取译文
   app.get("/api/items", async (c) => {
     const sourceUrl = c.req.query("source") ?? undefined;
     const q = c.req.query("q") ?? undefined;
     const limit = Math.min(Number(c.req.query("limit") ?? 20), 200);
     const offset = Number(c.req.query("offset") ?? 0);
+    const lng = c.req.query("lng") ?? undefined;
     const result = await queryItems({ sourceUrl, q, limit, offset });
-    return c.json(result);
+    const items =
+      lng && result.items.length > 0
+        ? result.items.map((it) => {
+            const view = {
+              title: it.title ?? "",
+              summary: it.summary ?? "",
+              contentHtml: it.content ?? "",
+              translations: (it as { translations?: Record<string, ItemTranslationFields> }).translations,
+            };
+            const eff = getEffectiveItemFields(view, lng);
+            return { ...it, title: eff.title, summary: eff.summary, content: eff.contentHtml };
+          })
+        : result.items;
+    return c.json({ ...result, items });
   });
   // API：分页查询首页信息流（纯 DB 查询，基于 channels.json，不触发实时抓取）
   // - limit：每页条数，默认 50，最大 200
   // - offset：分页偏移，默认 0
   // - sub 或 channel：频道 id 过滤，省略或 all 则返回所有频道的 sourceRefs 并集
   // - 返回：{ channels（元数据）, items（含 sub_id/sub_title）, hasMore }
+  // - lng：目标语种（BCP 47），有译文时 title/summary/content 使用译文
   app.get("/api/feed", async (c) => {
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const offset = Number(c.req.query("offset") ?? 0);
     const channelFilter = c.req.query("channel") ?? c.req.query("sub") ?? undefined;
+    const lng = c.req.query("lng") ?? undefined;
     const channels = await getAllChannelConfigs();
     const channelsMeta = channels.map((ch) => ({ id: ch.id, title: ch.title ?? ch.id }));
     let sourceRefs: string[];
@@ -139,11 +163,22 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       }
     }
     const { items: dbItems, hasMore } = await queryFeedItems(sourceRefs, limit, offset);
-    const items = dbItems.map((item) => ({
-      ...item,
-      sub_id: sourceMap.get(item.source_url)?.subId ?? "",
-      sub_title: sourceMap.get(item.source_url)?.subTitle ?? "",
-    }));
+    const items = dbItems.map((item) => {
+      const base = {
+        ...item,
+        sub_id: sourceMap.get(item.source_url)?.subId ?? "",
+        sub_title: sourceMap.get(item.source_url)?.subTitle ?? "",
+      };
+      if (!lng) return base;
+      const view = {
+        title: item.title ?? "",
+        summary: item.summary ?? "",
+        contentHtml: item.content ?? "",
+        translations: (item as { translations?: Record<string, ItemTranslationFields> }).translations,
+      };
+      const eff = getEffectiveItemFields(view, lng);
+      return { ...base, title: eff.title, summary: eff.summary, content: eff.contentHtml };
+    });
     return c.json({ channels: channelsMeta, items, hasMore });
   });
   // SSE：推送后台抓取进度，客户端通过 EventSource 实时感知新条目
@@ -185,13 +220,13 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     const levelParam = c.req.query("level");
     const level = levelParam === "error" || levelParam === "warn" || levelParam === "info" || levelParam === "debug" ? levelParam : undefined;
     const categoryParam = c.req.query("category");
-    const category = categoryParam && /^(feeder|scheduler|enrich|db|auth|plugin|source|llm|app|config|signal)$/.test(categoryParam) ? categoryParam : undefined;
+    const category = categoryParam && /^(feeder|scheduler|enrich|db|auth|plugin|source|llm|app|config|writer)$/.test(categoryParam) ? categoryParam : undefined;
     const source_url = c.req.query("source_url") ?? undefined;
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const offset = Number(c.req.query("offset") ?? 0);
     const sinceParam = c.req.query("since");
     const since = sinceParam ? new Date(sinceParam) : undefined;
-    const result = await queryLogs({ level, category: category as import("../logger/types.js").LogCategory | undefined, source_url, limit, offset, since });
+    const result = await queryLogs({ level, category: category as import("../core/logger/types.js").LogCategory | undefined, source_url, limit, offset, since });
     return c.json(result);
   });
   // API：返回插件列表 JSON
@@ -225,13 +260,23 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     try {
       const body = await c.req.json<{ sources?: unknown[] }>();
       const list = Array.isArray(body?.sources) ? body.sources : [];
-      const sources = list.filter((s): s is Record<string, unknown> => s != null && typeof s === "object" && typeof (s as { ref?: unknown }).ref === "string").map((s) => ({
-        ref: String((s as { ref: string }).ref),
-        type: (s as { type?: string }).type,
-        label: (s as { label?: string }).label,
-        refresh: (s as { refresh?: string }).refresh,
-        proxy: (s as { proxy?: string }).proxy,
-      }));
+      const sources: { ref: string; type?: SourceType; label?: string; refresh?: RefreshInterval; proxy?: string }[] = list
+        .filter((s): s is Record<string, unknown> => s != null && typeof s === "object" && typeof (s as { ref?: unknown }).ref === "string")
+        .map((s) => {
+          const t = (s as { type?: string }).type;
+          const type: SourceType | undefined =
+            t === "web" || t === "rss" || t === "email" ? t : undefined;
+          const r = (s as { refresh?: string }).refresh;
+          const refresh: RefreshInterval | undefined =
+            r && VALID_INTERVALS.includes(r as RefreshInterval) ? (r as RefreshInterval) : undefined;
+          return {
+            ref: String((s as { ref: string }).ref),
+            type,
+            label: (s as { label?: string }).label,
+            refresh,
+            proxy: (s as { proxy?: string }).proxy,
+          };
+        });
       await saveSourcesFile(sources);
       return c.json({ ok: true });
     } catch (err) {
@@ -387,7 +432,8 @@ export function createApp(getRssFn: typeof getRss = getRss) {
     try {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
-      const { xml } = await getRssFn(url, { cacheDir: CACHE_DIR, headless, writeDb: true });
+      const lng = c.req.query("lng") ?? undefined;
+      const { xml } = await getRssFn(url, { cacheDir: CACHE_DIR, headless, writeDb: true, lng });
       return c.body(xml, 200, {
         "Content-Type": "application/rss+xml; charset=utf-8",
       });

@@ -15,26 +15,68 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 ## 目录结构
 
+项目按 **core**、**feeder**、**scraper**、**db** 四大块组织；用户数据与运行时分离。
+
 ```
 项目文件（纳入版本管理）
-├── src/              源代码
-├── plugins/          内置站点插件（*.rssany.js / *.rssany.ts）
-├── statics/          静态 HTML 页面
-└── cache/            运行时 HTML / Feed 缓存（gitignore）
+├── src/
+│   ├── app/                HTTP 路由层（Hono）
+│   ├── core/               基础设施
+│   │   ├── cacher/         缓存 key 与目录策略
+│   │   ├── channel/        首页频道配置（channels.json 读写与聚合）
+│   │   ├── events/         应用内事件（如 feed:updated）
+│   │   ├── logger/          统一日志（落库）
+│   │   └── llm/             OpenAI 封装
+│   ├── config/             路径、adminToken 等配置
+│   ├── db/                  SQLite、FeedItem CRUD、日志表（外层统一）
+│   ├── feeder/              RSS 生成核心
+│   ├── scraper/             抓取与信源
+│   │   ├── sources/        getSource、web/api/email
+│   │   │   ├── web/        Site 插件、fetcher/parser/extractor/pluginLoader
+│   │   │   ├── api/        RSS/Atom/JSON Feed
+│   │   │   └── email/      IMAP
+│   │   ├── enrich/          正文提取任务队列
+│   │   ├── auth/            认证抽象
+│   │   ├── subscription/    sources.json 读写
+│   │   └── scheduler/       定时抓取
+│   ├── signal/             写文件模块（条目以 Markdown 落盘到配置目录）
+│   ├── types/               FeedItem、译文等
+│   └── utils/               refreshInterval 等
+├── plugins/                内置站点插件（*.rssany.{js,ts}）
+├── statics/                静态 HTML
+└── cache/                  运行时缓存（gitignore）
 
-用户数据（不纳入版本管理，位于 .rssany/）
-├── .rssany/
-│   ├── sources.json       爬虫配置（扁平信源列表 { sources: [] }，含 ref/refresh/proxy）
-│   ├── channels.json      首页信息流频道配置（channel → sourceRefs）
-│   ├── config.json         可选：enrich、signal 等配置
-│   ├── plugins/            用户自定义插件（可覆盖同 id 的内置插件）
-│   └── data/
-│       └── rssany.db       SQLite 数据库
+用户数据（.rssany/，首次启动自动创建）
+├── sources.json            爬虫配置 { sources: [] }
+├── channels.json           频道 → sourceRefs
+├── config.json             enrich、signal（写文件）等
+├── plugins/                用户插件
+└── data/rssany.db          SQLite
 ```
 
-> `.rssany/` 目录在首次启动时自动创建。
+> **四块对应**：**core** = `src/core/`；**feeder** = `src/feeder/`；**scraper** = `src/scraper/`；**db** = `src/db/`（外层统一，SQLite 与 CRUD 均在此）。
 
-## 架构模块
+## 架构模块（core / feeder / scraper / db）
+
+### core（基础设施）
+- **cacher**：缓存 key 与目录（fetched/parsed/extracted/feeds/domains）。
+- **channel**：channels.json 读写、getAllChannelConfigs、collectAllSourceRefs（首页信息流聚合）。
+- **events**：事件总线（emitFeedUpdated / onFeedUpdated）。
+- **logger**：统一日志落库，供 API/页面查看；依赖 db.insertLog。
+- **llm**：OpenAI 封装，供 parser/extractor 的 LLM 模式。
+
+### feeder（RSS 生成核心）
+- 根据 URL 生成 RSS：缓存 → getSource → fetchItems → upsertItems → buildRssXml；有 enrichItem 则提交队列，完成后 updateItemContent 并更新缓存。支持 `lng` 译文输出。writeDb 时写库并可选用写文件模块将条目落盘（见下文「写文件模块」）。
+
+### scraper（抓取与信源）
+- **sources**：Source 接口与 getSource；web（Site + fetcher/parser/extractor/pluginLoader）、api（RSS/Atom/JSON）、email（IMAP）。
+- **enrich**：正文提取任务队列，并发/重试可配置，完成后更新 feed 缓存。
+- **auth**：AuthFlow、AuthRequiredError，与 fetcher 配合；401 由 router 处理。
+- **subscription**：sources.json 读写。
+- **scheduler**：定时抓取调度。
+
+### db（数据库层）
+- 实现位于 **`src/db/`**（与 core、feeder、scraper 平级）：SQLite 单例、FeedItem CRUD、日志表、FTS5 全文检索。
 
 ### app（HTTP 路由层）
 - **职责**：Hono 框架实现的 HTTP 服务，负责路由分发、参数解析、错误处理
@@ -45,58 +87,14 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
   - `/api/items`：数据库条目查询（含 FTS 全文搜索）
   - `/api/items/pending-push`、`/api/items/mark-pushed`：OpenWebUI 推送接口
   - `/auth/*`：认证管理
-- **解耦**：与业务逻辑（feeder）解耦，可替换为 Express 等框架
+- **解耦**：与业务逻辑（feeder）解耦，可替换为 Express 等框架。路由支持 `lng` 参数时按译文输出（/rss/*、/api/rss、/api/feed、/api/items）。
 
-### feeder（RSS 生成核心）
-- **职责**：根据 URL 生成 RSS，协调 fetch → parse → extract 流程
-- **流程**：检查缓存 → 匹配信源 → 抓取列表 → 解析条目 → 构建 RSS → 后台补全详情
-- **缓存**：feed 级缓存（读+写），fetch/parse/extract 级仅写（供分析）
-- **写库**：列表解析后立即 `upsertItems`，extract 完成后 `updateItemContent`
-- **Signal 投递**：当 `writeDb` 且 `.rssany/config.json` 中 `signal.enabled` 为 true 时，同步将条目以 Markdown 写入 Signal 仓库目录（仅写文件，不 git commit），见 CONVENTIONS.md「Signal 仓库投递」
-
-### sources（信源抽象层）
-- **职责**：定义统一 `Source` 接口，汇聚 Web 插件、RssSource、genericWebSource，提供 `getSource` 查找入口
-- **Source 接口**：`id`、`pattern`、`refreshInterval`、`proxy`、`fetchItems`、`enrichItem`、`preCheck`
-- **优先级**：Web 插件（具体 URL 模式）→ RssSource（标准 Feed URL）→ genericWebSource（通用兜底）
-- **子模块**：
-  - `sources/web/`：网页信源，基于 Site 插件 + Puppeteer 抓取
-  - `sources/api/rss.ts`：标准 RSS/Atom/JSON Feed 解析器
-  - `sources/email/`：邮件信源（IMAP）
-
-### sources/web（网页信源）
-- **fetcher**：使用 Puppeteer 无头浏览器拉取页面 HTML，支持认证态恢复、代理配置、HTML 净化
-- **parser**：从 HTML 列表页解析出条目列表（title、link、summary 等），支持自定义解析器或 LLM 解析
-- **extractor**：从详情页 HTML 提取完整正文内容，支持自定义提取器、Readability、LLM 提取
-- **pluginLoader**：扫描并加载 `plugins/`（内置）+ `.rssany/plugins/`（用户）中的 Site 插件
-
-### auth（认证抽象）
-- **职责**：定义 AuthFlow 类型与认证错误，与 fetcher 配合使用
-- **流程**：feeder 预检 → 检查 cookies → 失败抛出 AuthRequiredError → router 返回 401
-
-### cacher（缓存管理）
-- **职责**：统一管理缓存写入/读取，包括 HTML 缓存与认证档案持久化
-- **结构**：`cache/fetched/`、`cache/parsed/`、`cache/extracted/`、`cache/feeds/`、`cache/domains/`
-- **key 策略**：`cacheKey(url, strategy)` 根据刷新间隔生成时间窗口 key，过期即失效
-
-### db（数据库层）
-- **职责**：管理 SQLite 单例，提供 FeedItem 的增量写入与查询
-- **位置**：`.rssany/data/rssany.db`
-- **接口**：`upsertItems`、`updateItemContent`、`queryItems`、`getPendingPushItems`、`markPushed`
-- **FTS5**：`items_fts` 虚拟表支持对 title/summary/content 全文检索
-
-### utils（共享工具）
-- **`utils/refreshInterval.ts`**：`RefreshInterval` 类型定义 + `refreshIntervalToMs` 转换函数，全项目唯一权威来源
-
-### enrich（正文提取任务队列）
-- **职责**：全局异步任务队列，管理所有后台正文提取任务，统一控制并发与重试
-- **接口**：`enrichQueue.submit(items, enrichFn, ctx, opts)` → `taskId`；`enrichQueue.getTask(taskId)` → 任务状态
-- **配置**：从 `.rssany/config.json` 的 `enrich.concurrency`（默认 2）与 `enrich.maxRetries`（默认 2）读取，支持 `ENRICH_CONCURRENCY` / `ENRICH_MAX_RETRIES` 环境变量兜底
-- **状态**：单任务状态 `pending | running | done`；单条目状态 `pending | running | done | failed`
-- **缓存更新**：每条目提取完成后立即覆盖 feeds 缓存（XML + items JSON），DB 同步更新
-
-### llm（LLM 统一调用）
-- **职责**：封装 OpenAI API 调用，供 parser/extractor 的 LLM 模式使用
-- **配置**：从环境变量读取 OPENAI_API_KEY、OPENAI_BASE_URL、OPENAI_MODEL
+### signal（写文件模块）
+- **职责**：将入库条目以「一条信息一个文件」的形式写入配置的本地目录，仅写文件、不执行 git 操作，便于后续用 Git 或文档分析引擎使用。
+- **配置**：在 `.rssany/config.json` 中增加 `signal` 块：`enabled`（是否启用，默认 `false`）、`repoPath`（写文件目标目录，支持相对或绝对路径）。环境变量 `SIGNAL_REPO_PATH` 可覆盖 `repoPath`；未配置或 `enabled: false` 时不写文件。
+- **目录与文件名**：根目录为 `repoPath`，其下固定子目录 `items/`，再按日期分子目录 `YYYY-MM-DD`。单条对应 `items/YYYY-MM-DD/<id>.md`，日期取自条目 `pubDate`（无则用当天）。`<id>` 为稳定唯一 id（如 link 的 SHA256 前 16 位十六进制），同一 link 去重为同一文件。
+- **Markdown 格式**：UTF-8；YAML frontmatter（`---` 起止）+ 正文。frontmatter 推荐字段：`id`、`url`、`source_url`、`sources`、`title`、`author`、`pub_date`、`fetched_at`。正文第一行建议一级标题 `# <title>`，随后摘要与正文（由 `contentHtml` 等生成）。
+- **接入点**：在 feeder 层与写库同步触发——当 `writeDb: true` 且写文件配置启用时，在 `upsertItems` 之后对当次列表条目批量写文件，在 `updateItemContent` 之后对单条再写一次（覆盖同一文件，并合并 `sources`）。写文件失败仅记录日志，不阻塞 RSS 生成与写库。
 
 ## 数据流程
 
@@ -152,7 +150,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 
 ### Site 接口
 
-插件必须实现 `Site` 接口（定义在 `src/sources/web/site.ts`），包含以下字段：
+插件必须实现 `Site` 接口（定义在 `src/scraper/sources/web/site.ts`），包含以下字段：
 
 #### 必填字段
 

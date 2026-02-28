@@ -4,9 +4,9 @@ import Database from "better-sqlite3";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
-import type { LogEntry } from "../logger/types.js";
+import type { LogEntry } from "../core/logger/types.js";
 import { DATA_DIR } from "../config/paths.js";
-import { emitFeedUpdated } from "../events/index.js";
+import { emitFeedUpdated } from "../core/events/index.js";
 
 
 let _db: Database.Database | null = null;
@@ -83,8 +83,13 @@ function initSchema(db: Database.Database): void {
 }
 
 
-/** 批量插入条目（已存在则跳过），返回实际新增数量，有新条目时广播 feed:updated 事件 */
-export async function upsertItems(items: FeedItem[], sourceUrl: string): Promise<number> {
+/** 批量插入条目（已存在则跳过），返回实际新增数量，有新条目时广播 feed:updated 事件。source_url 取自 item.sourceRef（同批需一致）；若传入了 sourceUrl 则覆盖，用于兼容。 */
+export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string): Promise<number> {
+  if (items.length === 0) return 0;
+  const sourceUrl = sourceUrlOverride ?? items[0].sourceRef;
+  if (!sourceUrl) {
+    throw new Error("upsertItems: 需在每条 item 上设置 sourceRef，或传入 sourceUrlOverride");
+  }
   const db = await getDb();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO items (id, url, source_url, title, author, summary, pub_date, fetched_at)

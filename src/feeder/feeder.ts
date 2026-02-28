@@ -2,17 +2,18 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { cacheKey } from "../cacher/index.js";
-import { getSource } from "../sources/index.js";
-import { AuthRequiredError } from "../auth/index.js";
-import { buildRssXml } from "../feed/index.js";
-import type { RssChannel, RssEntry } from "../feed/types.js";
+import { cacheKey } from "../core/cacher/index.js";
+import { getSource } from "../scraper/sources/index.js";
+import { AuthRequiredError } from "../scraper/auth/index.js";
+import { buildRssXml } from "./rss.js";
+import type { RssChannel, RssEntry } from "./types.js";
 import type { FeedItem } from "../types/feedItem.js";
+import { getEffectiveItemFields } from "../types/feedItem.js";
 import type { FeederConfig, FeederResult } from "./types.js";
 import { upsertItems, updateItemContent } from "../db/index.js";
-import { enrichQueue } from "../enrich/index.js";
-import { writeItems, writeItem } from "../signal/index.js";
-import { logger } from "../logger/index.js";
+import { enrichQueue } from "../scraper/enrich/index.js";
+import { writeItems, writeItem } from "../writer/index.js";
+import { logger } from "../core/logger/index.js";
 
 
 const FEEDS_SUBDIR = "feeds";
@@ -26,17 +27,7 @@ interface FeedCache {
 }
 
 
-/** 从 feeds 缓存读取 XML：key 本身已编码时间窗口，存在即有效，无需 mtime 检查 */
-async function readFeedsCache(cacheDir: string, key: string): Promise<string | null> {
-  try {
-    return await readFile(join(cacheDir, FEEDS_SUBDIR, `${key}.xml`), "utf-8");
-  } catch {
-    return null;
-  }
-}
-
-
-/** 从 feeds 缓存读取 items JSON，与 XML 同目录同 key，扩展名不同 */
+/** 从 feeds 缓存读取 items JSON（唯一缓存，命中后据此实时生成 XML） */
 async function readItemsCache(cacheDir: string, key: string): Promise<FeedItem[] | null> {
   try {
     const raw = await readFile(join(cacheDir, FEEDS_SUBDIR, `${key}.items.json`), "utf-8");
@@ -49,15 +40,19 @@ async function readItemsCache(cacheDir: string, key: string): Promise<FeedItem[]
 }
 
 
-/** 将 feeds XML 写入缓存 */
-async function writeFeedsCache(cacheDir: string, key: string, xml: string): Promise<void> {
-  const dir = join(cacheDir, FEEDS_SUBDIR);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, `${key}.xml`), xml, "utf-8");
+/** 根据 listUrl + items 构建 RssChannel（与 generateAndCache 一致，用于缓存命中时实时生成 XML）；lng 存在时设置 channel.language */
+function buildChannelFromItems(listUrl: string, items: FeedItem[], lng?: string | null): RssChannel {
+  const channel: RssChannel = {
+    title: items[0]?.author ? `${items[0].author} 的订阅` : "RSS 订阅",
+    link: listUrl,
+    description: `来自 ${listUrl} 的订阅`,
+  };
+  if (lng) channel.language = lng;
+  return channel;
 }
 
 
-/** 将 items 写入缓存（与 XML 同目录，.items.json 后缀） */
+/** 将 items 写入缓存（仅存 JSON，不再存 XML） */
 async function writeItemsCache(cacheDir: string, key: string, items: FeedItem[]): Promise<void> {
   const dir = join(cacheDir, FEEDS_SUBDIR);
   await mkdir(dir, { recursive: true });
@@ -65,12 +60,13 @@ async function writeItemsCache(cacheDir: string, key: string, items: FeedItem[])
 }
 
 
-/** 根据条目生成 RssEntry：有正文用 contentHtml，否则用 summary，不显示占位文案 */
-function toRssEntry(item: FeedItem): RssEntry {
-  const hasContent = item.contentHtml != null && item.contentHtml !== "";
-  const desc = hasContent ? (item.contentHtml ?? "") : (item.summary ?? "");
+/** 根据条目生成 RssEntry：有 lng 且存在译文则用译文，否则用原文；有正文用 contentHtml，否则用 summary */
+function toRssEntry(item: FeedItem, lng?: string | null): RssEntry {
+  const eff = getEffectiveItemFields(item, lng);
+  const hasContent = eff.contentHtml != null && eff.contentHtml !== "";
+  const desc = hasContent ? eff.contentHtml : eff.summary;
   return {
-    title: item.title,
+    title: eff.title,
     link: item.link,
     description: desc,
     guid: item.guid,
@@ -79,9 +75,10 @@ function toRssEntry(item: FeedItem): RssEntry {
 }
 
 
-/** 从 FeedCache 构建 RSS XML */
-function buildRssFromCache(cache: FeedCache): string {
-  return buildRssXml(cache.channel, cache.items.map((it) => toRssEntry(it)));
+/** 从 FeedCache 构建 RSS XML；lng 存在时条目与 channel 使用译文/语种 */
+function buildRssFromCache(cache: FeedCache, lng?: string | null): string {
+  const channel = lng ? { ...cache.channel, language: lng } : cache.channel;
+  return buildRssXml(channel, cache.items.map((it) => toRssEntry(it, lng)));
 }
 
 
@@ -103,24 +100,20 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     logger.warn("feeder", "抓取失败", { source_url: listUrl, err: message });
     throw err;
   }
-  const channel: RssChannel = {
-    title: items[0]?.author ? `${items[0].author} 的订阅` : "RSS 订阅",
-    link: listUrl,
-    description: `来自 ${listUrl} 的订阅`,
-  };
+  items.forEach((i) => { i.sourceRef = listUrl; });
+  const channel: RssChannel = buildChannelFromItems(listUrl, items, config.lng);
   const cache: FeedCache = { items, listUrl, channel };
-  const initialXml = buildRssFromCache(cache);
+  const initialXml = buildRssFromCache(cache, config.lng);
   if (cacheDir) {
-    await writeFeedsCache(cacheDir, key, initialXml);
     await writeItemsCache(cacheDir, key, items);
   }
   generatingKeys.delete(key);
   if (config.writeDb) {
-    upsertItems(items, listUrl).catch((err) =>
+    upsertItems(items).catch((err) =>
       logger.warn("db", "upsertItems 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
     );
-    writeItems(items, listUrl).catch((err) =>
-      logger.warn("signal", "批量投递失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+    writeItems(items).catch((err) =>
+      logger.warn("writer", "批量写入失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
     );
   }
   if (!includeContent || items.length === 0 || source.enrichItem == null) {
@@ -133,25 +126,22 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     {
       sourceUrl: listUrl,
       onItemDone: async (enrichedItem, index) => {
+        enrichedItem.sourceRef = listUrl;
         items[index] = enrichedItem;
         if (config.writeDb) {
           updateItemContent(enrichedItem).catch((err) =>
             logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
           );
-          writeItem(enrichedItem, listUrl).catch((err) =>
-            logger.warn("signal", "投递单条失败", { url: enrichedItem.link, err: err instanceof Error ? err.message : String(err) })
+          writeItem(enrichedItem).catch((err) =>
+            logger.warn("writer", "投递单条失败", { url: enrichedItem.link, err: err instanceof Error ? err.message : String(err) })
           );
         }
         if (cacheDir) {
-          const xml = buildRssFromCache(cache);
-          await writeFeedsCache(cacheDir, key, xml);
           await writeItemsCache(cacheDir, key, items);
         }
       },
       onAllDone: async () => {
         if (cacheDir) {
-          const xml = buildRssFromCache(cache);
-          await writeFeedsCache(cacheDir, key, xml);
           await writeItemsCache(cacheDir, key, items);
         }
       },
@@ -168,20 +158,20 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
   const strategy = config.refreshInterval ?? source.refreshInterval ?? "1day";
   const key = cacheKey(listUrl, strategy);
   if (cacheDir) {
-    const [cachedXml, cachedItems] = await Promise.all([
-      readFeedsCache(cacheDir, key),
-      readItemsCache(cacheDir, key),
-    ]);
-    if (cachedXml != null) {
-      if (config.writeDb && cachedItems != null && cachedItems.length > 0) {
-        upsertItems(cachedItems, listUrl).catch((err) =>
+    const cachedItems = await readItemsCache(cacheDir, key);
+    if (cachedItems !== null) {
+      cachedItems.forEach((i) => { i.sourceRef ??= listUrl; });
+      if (config.writeDb && cachedItems.length > 0) {
+        upsertItems(cachedItems).catch((err) =>
           logger.warn("db", "upsertItems(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
         );
-        writeItems(cachedItems, listUrl).catch((err) =>
-          logger.warn("signal", "批量投递(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+        writeItems(cachedItems).catch((err) =>
+          logger.warn("writer", "批量投递(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
         );
       }
-      return { xml: cachedXml, fromCache: true, items: cachedItems ?? [] };
+      const channel = buildChannelFromItems(listUrl, cachedItems, config.lng);
+      const xml = buildRssXml(channel, cachedItems.map((it) => toRssEntry(it, config.lng)));
+      return { xml, fromCache: true, items: cachedItems };
     }
   }
   if (source.preCheck != null) {

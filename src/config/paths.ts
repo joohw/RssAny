@@ -2,7 +2,7 @@
 
 import { mkdir, rename, access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { logger } from "../logger/index.js";
+import { logger } from "../core/logger/index.js";
 
 
 /** 用户数据根目录：.rssany/（不纳入版本管理，存放所有运行时用户数据） */
