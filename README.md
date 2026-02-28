@@ -66,26 +66,29 @@ pnpm dev
 cd webui && pnpm dev
 ```
 
-**生产模式**（前端静态文件由后端直接服务）：
+**生产模式**（前端与后端分离，前端仍在 5173 端口提供 UI）：
 
 ```bash
 # 构建前端
 cd webui && pnpm build && cd ..
 
-# 启动后端（访问 http://localhost:3751）
+# 启动后端（API 监听 http://localhost:3751）
 pnpm start
+
+# （可选）独立运行 WebUI preview / 静态服务器（继续使用 5173 端口）
+cd webui && pnpm preview --port 5173
 ```
 
-服务默认监听 `http://localhost:3751`。启动时会输出 Admin Token，用于访问管理功能：
+服务默认监听 `http://localhost:3751`（仅作为 API + RSS 端点）。启动时会输出 Admin Token，用于访问管理功能：
 
 ```
 RssAny 本机: http://127.0.0.1:3751/
-[Admin] Token: a3f8c2...  →  http://127.0.0.1:3751/admin
+[Admin] Token: a3f8c2...  →  http://127.0.0.1:5173/admin
 ```
 
 ## WebUI
 
-访问 `http://localhost:3751`（生产）或 `http://localhost:5173`（开发）打开管理界面。
+访问 `http://localhost:5173`（开发或预览/生产）打开管理界面；后端不再提供 UI 静态路由，仅保留 API + RSS。
 
 | 页面 | 说明 |
 |------|------|

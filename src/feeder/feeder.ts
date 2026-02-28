@@ -60,11 +60,11 @@ async function writeItemsCache(cacheDir: string, key: string, items: FeedItem[])
 }
 
 
-/** 根据条目生成 RssEntry：有 lng 且存在译文则用译文，否则用原文；有正文用 contentHtml，否则用 summary */
+/** 根据条目生成 RssEntry：有 lng 且存在译文则用译文，否则用原文；有正文用 content，否则用 summary */
 function toRssEntry(item: FeedItem, lng?: string | null): RssEntry {
   const eff = getEffectiveItemFields(item, lng);
-  const hasContent = eff.contentHtml != null && eff.contentHtml !== "";
-  const desc = hasContent ? eff.contentHtml : eff.summary;
+  const hasContent = eff.content != null && eff.content !== "";
+  const desc = hasContent ? eff.content : eff.summary;
   return {
     title: eff.title,
     link: item.link,
@@ -133,7 +133,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
             logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
           );
           writeItem(enrichedItem).catch((err) =>
-            logger.warn("writer", "投递单条失败", { url: enrichedItem.link, err: err instanceof Error ? err.message : String(err) })
+            logger.warn("writer", "写单条失败", { url: enrichedItem.link, err: err instanceof Error ? err.message : String(err) })
           );
         }
         if (cacheDir) {
@@ -166,7 +166,7 @@ export async function getRss(listUrl: string, config: FeederConfig = {}): Promis
           logger.warn("db", "upsertItems(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
         );
         writeItems(cachedItems).catch((err) =>
-          logger.warn("writer", "批量投递(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+          logger.warn("writer", "批量写入(缓存命中) 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
         );
       }
       const channel = buildChannelFromItems(listUrl, cachedItems, config.lng);

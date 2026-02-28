@@ -253,7 +253,7 @@ async function enrichItem(item, ctx) {
     ...item,
     author: detail.author ?? item.author,
     title: detail.title ?? item.title,
-    contentHtml: detail.content ? `<p>${detail.content.replace(/\n\n/g, "</p><p>")}</p>` : undefined,
+    content: detail.content ? `<p>${detail.content.replace(/\n\n/g, "</p><p>")}</p>` : undefined,
     pubDate: detail.pubDate ?? item.pubDate,
   };
 }

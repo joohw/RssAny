@@ -65,7 +65,7 @@ function mapArticle(article) {
     link,
     pubDate: article.pub_time ? new Date(article.pub_time * 1000) : new Date(),
     summary: rawSummary ? stripHl(rawSummary) : undefined,
-    contentHtml: article.html || undefined,
+    content: article.html || undefined,
   };
 }
 

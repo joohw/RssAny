@@ -1,6 +1,7 @@
 // 插件加载与包装：将 Site 插件包装为 Source 接口，注入 SiteContext 工具
 
 import { fetchHtml as fetchHtmlFn, preCheckAuth } from "./fetcher/index.js";
+import { extractHtml } from "./extractor/index.js";
 import { parseHtml } from "./parser/index.js";
 import { toAuthFlow, getSiteByUrl } from "./site.js";
 import { AuthRequiredError } from "../../auth/index.js";
@@ -28,6 +29,39 @@ export function buildSiteContext(site: Site, ctx: SourceContext): SiteContext {
         purify: opts?.purify,
       });
       return { html: res.body, finalUrl: res.finalUrl ?? url, status: res.status };
+    },
+    async extractItem(item, opts) {
+      const res = await fetchHtmlFn(item.link, {
+        cacheDir: ctx.cacheDir,
+        useCache: false,
+        authFlow,
+        headless: ctx.headless,
+        proxy,
+      });
+      if (res.status !== 200) {
+        throw new Error(`默认正文提取失败: HTTP ${res.status} ${res.statusText} for ${item.link}`);
+      }
+      const extracted = await extractHtml(res.body, {
+        url: res.finalUrl ?? item.link,
+        cacheDir: ctx.cacheDir ?? undefined,
+        mode: "readability",
+        useCache: true,
+        cacheKey: opts?.cacheKey,
+      });
+      const pubDate =
+        extracted.pubDate != null
+          ? typeof extracted.pubDate === "string"
+            ? new Date(extracted.pubDate)
+            : extracted.pubDate
+          : item.pubDate;
+      return {
+        ...item,
+        author: extracted.author ?? item.author,
+        title: extracted.title ?? item.title,
+        summary: extracted.summary ?? item.summary,
+        content: extracted.content ?? item.content,
+        pubDate,
+      };
     },
   };
 }

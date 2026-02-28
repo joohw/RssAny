@@ -39,7 +39,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 │   │   ├── auth/            认证抽象
 │   │   ├── subscription/    sources.json 读写
 │   │   └── scheduler/       定时抓取
-│   ├── signal/             写文件模块（条目以 Markdown 落盘到配置目录）
+│   ├── writer/             写文件模块（条目以 Markdown 落盘到配置目录）
 │   ├── types/               FeedItem、译文等
 │   └── utils/               refreshInterval 等
 ├── plugins/                内置站点插件（*.rssany.{js,ts}）
@@ -49,7 +49,7 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 用户数据（.rssany/，首次启动自动创建）
 ├── sources.json            爬虫配置 { sources: [] }
 ├── channels.json           频道 → sourceRefs
-├── config.json             enrich、signal（写文件）等
+├── config.json             enrich、writer（写文件）等
 ├── plugins/                用户插件
 └── data/rssany.db          SQLite
 ```
@@ -89,11 +89,11 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
   - `/auth/*`：认证管理
 - **解耦**：与业务逻辑（feeder）解耦，可替换为 Express 等框架。路由支持 `lng` 参数时按译文输出（/rss/*、/api/rss、/api/feed、/api/items）。
 
-### signal（写文件模块）
+### writer（写文件模块）
 - **职责**：将入库条目以「一条信息一个文件」的形式写入配置的本地目录，仅写文件、不执行 git 操作，便于后续用 Git 或文档分析引擎使用。
-- **配置**：在 `.rssany/config.json` 中增加 `signal` 块：`enabled`（是否启用，默认 `false`）、`repoPath`（写文件目标目录，支持相对或绝对路径）。环境变量 `SIGNAL_REPO_PATH` 可覆盖 `repoPath`；未配置或 `enabled: false` 时不写文件。
+- **配置**：在 `.rssany/config.json` 中增加 `writer` 块：`enabled`（是否启用，默认 `false`）、`repoPath`（写文件目标目录，支持相对或绝对路径）。环境变量 `WRITER_REPO_PATH` 可覆盖 `repoPath`；未配置或 `enabled: false` 时不写文件。
 - **目录与文件名**：根目录为 `repoPath`，其下固定子目录 `items/`，再按日期分子目录 `YYYY-MM-DD`。单条对应 `items/YYYY-MM-DD/<id>.md`，日期取自条目 `pubDate`（无则用当天）。`<id>` 为稳定唯一 id（如 link 的 SHA256 前 16 位十六进制），同一 link 去重为同一文件。
-- **Markdown 格式**：UTF-8；YAML frontmatter（`---` 起止）+ 正文。frontmatter 推荐字段：`id`、`url`、`source_url`、`sources`、`title`、`author`、`pub_date`、`fetched_at`。正文第一行建议一级标题 `# <title>`，随后摘要与正文（由 `contentHtml` 等生成）。
+- **Markdown 格式**：UTF-8；YAML frontmatter（`---` 起止）+ 正文。frontmatter 推荐字段：`id`、`url`、`source_url`、`sources`、`title`、`author`、`pub_date`、`fetched_at`。正文第一行建议一级标题 `# <title>`，随后摘要与正文（由 `content` 等生成）。
 - **接入点**：在 feeder 层与写库同步触发——当 `writeDb: true` 且写文件配置启用时，在 `upsertItems` 之后对当次列表条目批量写文件，在 `updateItemContent` 之后对单条再写一次（覆盖同一文件，并合并 `sources`）。写文件失败仅记录日志，不阻塞 RSS 生成与写库。
 
 ## 数据流程
@@ -169,6 +169,15 @@ RssAny 是一个通用的 RSS/Atom/JSON Feed 生成器，能够将任意网页�
 - **`domain`** (string | null)：域名，用于保存 cookies
 - **`loginTimeoutMs`** (number | null)：登录超时（毫秒，默认 300000）
 - **`pollIntervalMs`** (number | null)：轮询间隔（毫秒，默认 2000）
+- **`enrichItem`** (function | null)：对单条补全正文（后台任务）；不实现则不做正文抓取，适合即时资讯类（如 X）
+
+### 正文补全（enrichItem）与上下文
+
+- **fetchItems** 只负责列表；需要详情正文时实现 **enrichItem(item, ctx)**，返回带 `content` 的完整条目。
+- **ctx** 提供：
+  - **ctx.fetchHtml(url, opts?)**：用浏览器抓取 URL，返回 `{ html, finalUrl, status }`（带认证与 cookie）。
+  - **ctx.extractItem(item, opts?)**：默认正文提取——拉取 `item.link` 后用 Readability 提取并合并回条目。需要正文但无需自写解析时可直接 `return ctx.extractItem(item)`；自定义解析则 `ctx.fetchHtml(item.link)` 后自行解析。
+- **即时资讯类**（如 X、HN 最新）：不实现 `enrichItem` 即可，列表即最终内容。
 
 ### 示例
 

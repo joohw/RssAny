@@ -12,7 +12,7 @@ export function itemToStableId(item: FeedItem): string {
   return createHash("sha256").update(item.link, "utf8").digest("hex").slice(0, 16);
 }
 
-/** 将 contentHtml 中常见块级标签转为换行，便于在 Markdown 中可读；不做完整 HTML→MD 转换 */
+/** 将 content 中常见块级标签转为换行，便于在 Markdown 中可读；不做完整 HTML→MD 转换 */
 function htmlToMarkdownBody(html: string): string {
   if (!html || !html.trim()) return "";
   return html
@@ -75,8 +75,8 @@ export function buildItemMarkdown(item: FeedItem, sourceUrl: string, existingSou
   if (item.summary?.trim()) {
     lines.push(item.summary.trim(), "");
   }
-  if (item.contentHtml?.trim()) {
-    lines.push(htmlToMarkdownBody(item.contentHtml));
+  if (item.content?.trim()) {
+    lines.push(htmlToMarkdownBody(item.content));
   }
   return lines.join("\n");
 }

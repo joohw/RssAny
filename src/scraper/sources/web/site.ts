@@ -5,7 +5,7 @@ import type { RefreshInterval } from "../../../utils/refreshInterval.js";
 import type { FeedItem } from "../../../types/feedItem.js";
 
 
-/** 框架注入给插件的调用上下文，提供浏览器抓取工具 */
+/** 框架注入给插件的调用上下文，提供浏览器抓取工具与默认正文提取 */
 export interface SiteContext {
   /** 缓存目录 */
   cacheDir?: string;
@@ -21,6 +21,15 @@ export interface SiteContext {
     url: string,
     opts?: { waitMs?: number; purify?: boolean }
   ): Promise<{ html: string; finalUrl: string; status: number }>;
+  /**
+   * 默认正文提取：拉取 item.link 的 HTML 后用 Readability 提取正文，合并回条目并返回。
+   * 插件在 enrichItem 中可直接 return ctx.extractItem(item) 使用默认提取，无需自写解析。
+   * 即时资讯类站点可不实现 enrichItem，不做正文补全。
+   */
+  extractItem(
+    item: FeedItem,
+    opts?: { cacheKey?: string }
+  ): Promise<FeedItem>;
 }
 
 
@@ -41,7 +50,7 @@ export interface Site {
   fetchItems(sourceId: string, ctx: SiteContext): Promise<FeedItem[]>;
   /**
    * 可选：对单条目异步补全正文（后台任务）。
-   * 返回携带 contentHtml 的完整条目。
+   * 返回携带 content 的完整条目。
    */
   enrichItem?(item: FeedItem, ctx: SiteContext): Promise<FeedItem>;
   /** 认证：检查是否已登录 */

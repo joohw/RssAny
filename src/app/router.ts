@@ -4,7 +4,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { getRss } from "../feeder/index.js";
 import { onFeedUpdated } from "../core/events/index.js";
 import { getSourcesRaw, saveSourcesFile } from "../scraper/subscription/index.js";
@@ -28,8 +27,6 @@ import { logger } from "../core/logger/index.js";
 
 const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
 const STATICS_DIR = join(process.cwd(), "statics");
-/** SvelteKit 构建产物目录（生产）；开发时由 Vite dev server 直接提供页面 */
-const WEBUI_BUILD_DIR = join(process.cwd(), "webui/build");
 
 
 /** 从路径提取 URL（与 /rss/* 一致） */
@@ -50,16 +47,6 @@ async function readStaticHtml(name: string, fallback: string): Promise<string> {
   }
 }
 
-
-/** 读取 SvelteKit SPA fallback HTML */
-async function readSpaHtml(): Promise<string> {
-  try {
-    return await readFile(join(WEBUI_BUILD_DIR, "200.html"), "utf-8");
-  } catch {
-    // 开发时 webui/build 可能不存在，返回简单占位
-    return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>RssAny</title></head><body><p>请先运行 <code>npm run webui:build</code> 构建前端，或使用 <code>npm run webui:dev</code> 启动前端开发服务器。</p></body></html>';
-  }
-}
 
 
 /** HTML 转义，用于注入到页面中的不可信内容 */
@@ -126,11 +113,11 @@ export function createApp(getRssFn: typeof getRss = getRss) {
             const view = {
               title: it.title ?? "",
               summary: it.summary ?? "",
-              contentHtml: it.content ?? "",
+              content: it.content ?? "",
               translations: (it as { translations?: Record<string, ItemTranslationFields> }).translations,
             };
             const eff = getEffectiveItemFields(view, lng);
-            return { ...it, title: eff.title, summary: eff.summary, content: eff.contentHtml };
+            return { ...it, title: eff.title, summary: eff.summary, content: eff.content };
           })
         : result.items;
     return c.json({ ...result, items });
@@ -173,11 +160,11 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const view = {
         title: item.title ?? "",
         summary: item.summary ?? "",
-        contentHtml: item.content ?? "",
+        content: item.content ?? "",
         translations: (item as { translations?: Record<string, ItemTranslationFields> }).translations,
       };
       const eff = getEffectiveItemFields(view, lng);
-      return { ...base, title: eff.title, summary: eff.summary, content: eff.contentHtml };
+      return { ...base, title: eff.title, summary: eff.summary, content: eff.content };
     });
     return c.json({ channels: channelsMeta, items, hasMore });
   });
@@ -407,7 +394,7 @@ export function createApp(getRssFn: typeof getRss = getRss) {
           title: enriched.title ?? null,
           author: enriched.author ?? null,
           pubDate: enriched.pubDate instanceof Date ? enriched.pubDate.toISOString() : (enriched.pubDate ?? null),
-          content: enriched.contentHtml ?? null,
+          content: enriched.content ?? null,
           _extractor: site.id,
         });
       }
@@ -449,14 +436,6 @@ export function createApp(getRssFn: typeof getRss = getRss) {
       const msg = err instanceof Error ? err.message : String(err);
       return c.text(`生成 RSS 失败: ${msg}`, 500);
     }
-  });
-  // ── 静态文件服务：webui/build/（SvelteKit 构建产物）───────────────────────────
-  // 精确的静态资源文件（带扩展名）直接由 serveStatic 处理
-  app.use("/*", serveStatic({ root: "./webui/build" }));
-  // SPA fallback：所有未匹配路由返回 webui/build/200.html（由 SvelteKit 客户端路由处理）
-  app.get("/*", async (c) => {
-    const html = await readSpaHtml();
-    return c.html(html);
   });
   return app;
 }

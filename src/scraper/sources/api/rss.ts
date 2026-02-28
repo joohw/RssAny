@@ -69,7 +69,7 @@ export const rssSource: Source = {
         new Date();
       const author = typeof item.creator === "string" ? item.creator : typeof item.author === "string" ? item.author : undefined;
       const summary = typeof item.summary === "string" ? item.summary : typeof item.contentSnippet === "string" ? item.contentSnippet : undefined;
-      const contentHtml = typeof item.content === "string" ? item.content : typeof item["content:encoded"] === "string" ? item["content:encoded"] : undefined;
+      const content = typeof item.content === "string" ? item.content : typeof item["content:encoded"] === "string" ? item["content:encoded"] : undefined;
       return {
         guid,
         title: item.title ?? "(无标题)",
@@ -77,7 +77,7 @@ export const rssSource: Source = {
         pubDate,
         author,
         summary,
-        contentHtml,
+        content,
       } satisfies FeedItem;
     });
   },

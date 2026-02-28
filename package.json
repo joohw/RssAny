@@ -15,7 +15,6 @@
     "start": "node dist/index.js",
     "serve:route": "node scripts/serve-route.mjs",
     "serve:app": "npx tsx src/app/index.ts",
-    "tunnel:route": "cloudflared tunnel --protocol http2 --url http://127.0.0.1:3751",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "eslint .",

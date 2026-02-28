@@ -69,7 +69,7 @@ export interface ParserConfig {
   customParser?: CustomParserFn;
   /** LLM 解析配置，mode 为 "llm" 时使用（可从环境变量读取） */
   llmConfig?: LLMParserConfig;
-  /** 是否包含详细内容（contentHtml），默认 false（仅摘要） */
+  /** 是否包含详细内容（content），默认 false（仅摘要） */
   includeContent?: boolean;
   /** 缓存目录，启用时将解析结果缓存到 cacheDir/parsed/ */
   cacheDir?: string;
@@ -157,7 +157,7 @@ function toFeedItem(entry: ParsedEntry, includeContent: boolean): FeedItem {
     pubDate: entry.published ? new Date(entry.published) : new Date(),
     author: entry.author ? entry.author : undefined,
     summary: entry.description,
-    contentHtml: includeContent ? entry.content : undefined,
+    content: includeContent ? entry.content : undefined,
   };
 }
 

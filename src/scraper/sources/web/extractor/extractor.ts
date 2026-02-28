@@ -120,7 +120,7 @@ export async function extractFromLink(
 }
 
 
-/** 对单个 FeedItem 根据 link 拉取并提取正文，合并回 item（补充 author/title/summary/contentHtml/pubDate） */
+/** 对单个 FeedItem 根据 link 拉取并提取正文，合并回 item（补充 author/title/summary/content/pubDate） */
 export async function extractItem(
   item: FeedItem,
   extractorConfig: ExtractorConfig = {},
@@ -138,7 +138,7 @@ export async function extractItem(
     author: extracted.author ?? item.author,
     title: extracted.title ?? item.title,
     summary: extracted.summary ?? item.summary,
-    contentHtml: extracted.content ?? item.contentHtml,
+    content: extracted.content ?? item.content,
     pubDate,
   };
 }

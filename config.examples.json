@@ -1,5 +1,5 @@
 {
-    "signal": {
+    "writer": {
         "enabled": true,
         "repoPath": "../AI Signals"
     }

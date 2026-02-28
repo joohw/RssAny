@@ -89,9 +89,9 @@ export const emailSource: RssSource = {
             const link = `imap://${host}/${encodeURIComponent(folder)}#${msg.uid}`;
             const htmlBody = typeof parsed.html === "string" ? parsed.html : undefined;
             const textBody = typeof parsed.text === "string" ? parsed.text : undefined;
-            const contentHtml = htmlBody ?? (textBody ? `<pre>${textBody}</pre>` : undefined);
+            const content = htmlBody ?? (textBody ? `<pre>${textBody}</pre>` : undefined);
             const summary = textBody?.slice(0, 300) || undefined;
-            items.push({ guid, title, link, pubDate, author, summary, contentHtml });
+            items.push({ guid, title, link, pubDate, author, summary, content });
           } catch (err) {
             logger.warn("source", "解析单封邮件失败", { err: err instanceof Error ? err.message : String(err) });
           }

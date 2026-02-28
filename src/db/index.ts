@@ -192,7 +192,7 @@ export async function updateItemContent(item: FeedItem): Promise<void> {
     WHERE url = @url AND content IS NULL
   `).run({
     url: item.link,
-    content: item.contentHtml ?? null,
+    content: item.content ?? null,
     author: item.author ?? null,
     pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null),
   });

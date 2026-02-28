@@ -8,14 +8,14 @@
 export interface ItemTranslationFields {
     title?: string;
     summary?: string;
-    contentHtml?: string;
+    content?: string;
 }
 
 /** 带可选 translations 的条目视图（FeedItem 或 DB 行 + translations 等） */
 export interface ItemWithOptionalTranslations {
     title: string;
     summary?: string;
-    contentHtml?: string;
+    content?: string;
     translations?: Record<string, ItemTranslationFields>;
 }
 
@@ -26,13 +26,13 @@ export interface ItemWithOptionalTranslations {
 export function getEffectiveItemFields(
     item: ItemWithOptionalTranslations,
     lng?: string | null,
-): { title: string; summary: string; contentHtml: string } {
+): { title: string; summary: string; content: string } {
     const raw = lng && lng !== "" ? item.translations?.[lng] : undefined;
     const t = raw && typeof raw === "object" ? raw : undefined;
     return {
         title: (t?.title != null && t.title !== "" ? t.title : item.title) ?? "",
         summary: (t?.summary != null && t.summary !== "" ? t.summary : item.summary) ?? "",
-        contentHtml: (t?.contentHtml != null && t.contentHtml !== "" ? t.contentHtml : item.contentHtml) ?? "",
+        content: (t?.content != null && t.content !== "" ? t.content : item.content) ?? "",
     };
 }
 
@@ -49,8 +49,8 @@ export interface FeedItem {
     author?: string;
     /** 简要描述（纯文本，适合 RSS description） */
     summary?: string;
-    /** 详情正文（HTML，输出到 RSS description） */
-    contentHtml?: string;
+    /** 详情正文（输出到 RSS description） */
+    content?: string;
     /** 分类 / 标签 */
     categories?: string[];
     /** 信源标识（列表页 URL 或 imap 等），入库与按 channel 筛选用；设后则 upsertItems / writeItems 等无需再传 ref */

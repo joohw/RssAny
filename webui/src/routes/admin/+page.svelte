@@ -59,7 +59,7 @@
   const tabDescs: Record<Tab, string> = {
     rss: '将列表页生成 RSS 订阅源，在新标签页打开预览',
     parse: '从列表页解析条目列表（title、link、summary 等），返回 JSON',
-    extract: '从详情页提取完整正文内容（title、author、contentHtml 等），返回 JSON',
+    extract: '从详情页提取完整正文内容（title、author、content 等），返回 JSON',
     plugins: '',
   };
   const tabPlaceholders: Record<Tab, string> = {
