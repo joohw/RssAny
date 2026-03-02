@@ -1,23 +1,63 @@
 {
-  "all": {
-    "title": "全部",
-    "description": "所有频道聚合",
-    "sourceRefs": []
-  },
   "tech": {
-    "title": "科技",
-    "description": "科技媒体与资讯",
+    "title": "科技媒体",
     "sourceRefs": [
-      "https://sspai.com/feed",
-      "https://www.ruanyifeng.com/blog/atom.xml",
-      "https://feeds.feedburner.com/hacker-news/rss"
+      "https://www.theinformation.com/",
+      "https://techcrunch.com/category/artificial-intelligence/",
+      "https://www.technologyreview.com/",
+      "https://venturebeat.com/",
+      "https://slashdot.org/"
     ]
   },
-  "mixed": {
-    "title": "综合",
+  "hackernews": {
+    "title": "Hacker News",
     "sourceRefs": [
-      "https://feeds.feedburner.com/hacker-news/rss",
-      "https://36kr.com/feed"
+      "https://news.ycombinator.com/newest"
+    ]
+  },
+  "ai_x": {
+    "title": "X/推特",
+    "sourceRefs": [
+      "https://x.com/elonmusk",
+      "https://x.com/AIatMeta",
+      "https://x.com/OpenAI",
+      "https://x.com/GoogleAI",
+      "https://x.com/Anthropic",
+      "https://x.com/Tesla",
+      "https://x.com/Microsoft",
+      "https://x.com/NVIDIA",
+      "https://x.com/NVIDIARobotics",
+      "https://x.com/BostonDynamics",
+      "https://x.com/xai",
+      "https://x.com/Figure_robot"
+    ]
+  },
+  "arxiv": {
+    "title": "Arxiv 论文",
+    "sourceRefs": [
+      "https://rss.arxiv.org/rss/cs.CL",
+      "https://rss.arxiv.org/rss/cs.LG"
+    ]
+  },
+  "competitors": {
+    "title": "竞品动态",
+    "sourceRefs": [
+      "https://x.com/turingcom",
+      "https://x.com/scale_ai",
+      "https://x.com/HelloSurgeAI",
+      "https://x.com/labelbox",
+      "https://x.com/V7Labs",
+      "https://supervisely.com/blog/",
+      "https://x.com/crowdgenbyappen",
+      "https://x.com/SegmentsAI",
+      "https://www.kognic.com/articles"
+    ]
+  },
+  "lingowhale": {
+    "title": "语鲸",
+    "sourceRefs": [
+      "lingowhale://articles?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7",
+      "lingowhale://today?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7"
     ]
   }
 }

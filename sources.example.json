@@ -1,27 +1,158 @@
 {
   "sources": [
     {
-      "ref": "https://sspai.com/feed",
-      "type": "rss",
-      "label": "少数派",
+      "ref": "https://www.theinformation.com/",
+      "label": "The Information",
       "refresh": "1h"
     },
     {
-      "ref": "https://www.ruanyifeng.com/blog/atom.xml",
-      "type": "rss",
-      "label": "阮一峰博客",
+      "ref": "https://techcrunch.com/category/artificial-intelligence/",
+      "label": "TechCrunch AI",
       "refresh": "1h"
     },
     {
-      "ref": "https://feeds.feedburner.com/hacker-news/rss",
-      "type": "rss",
-      "label": "Hacker News",
+      "ref": "https://www.technologyreview.com/",
+      "label": "MIT Technology Review",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://venturebeat.com/",
+      "label": "VentureBeat",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://slashdot.org/",
+      "label": "Slashdot",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://news.ycombinator.com/newest",
+      "label": "HN newest",
       "refresh": "30min"
     },
     {
-      "ref": "https://36kr.com/feed",
-      "type": "rss",
-      "label": "36氪",
+      "ref": "https://x.com/elonmusk",
+      "label": "elonmusk",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/AIatMeta",
+      "label": "Meta AI",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/OpenAI",
+      "label": "OpenAI",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/GoogleAI",
+      "label": "Google",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/Anthropic",
+      "label": "Anthropic",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/Tesla",
+      "label": "Tesla",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/Microsoft",
+      "label": "Microsoft",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/NVIDIA",
+      "label": "NVIDIA",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/NVIDIARobotics",
+      "label": "NVIDIA Robotics",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/BostonDynamics",
+      "label": "Boston Dynamics",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/xai",
+      "label": "xAI",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/Figure_robot",
+      "label": "Figure AI",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://rss.arxiv.org/rss/cs.CL",
+      "label": "arxiv cs.CL (NLP/LLM)",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://rss.arxiv.org/rss/cs.LG",
+      "label": "arxiv cs.LG (Machine Learning)",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://x.com/turingcom",
+      "label": "Turing",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/scale_ai",
+      "label": "Scale AI",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/HelloSurgeAI",
+      "label": "Surge AI",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/labelbox",
+      "label": "Labelbox",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/V7Labs",
+      "label": "V7Labs",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://supervisely.com/blog/",
+      "label": "Supervisely",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/crowdgenbyappen",
+      "label": "Appen",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/SegmentsAI",
+      "label": "Segments.ai",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://www.kognic.com/articles",
+      "label": "Kognic",
+      "refresh": "1h"
+    },
+    {
+      "ref": "lingowhale://articles?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7",
+      "label": "语鲸推荐文章",
+      "refresh": "1h"
+    },
+    {
+      "ref": "lingowhale://today?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7",
+      "label": "语鲸今日文章",
       "refresh": "1h"
     }
   ]
