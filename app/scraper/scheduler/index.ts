@@ -12,14 +12,16 @@ import { logger } from "../../core/logger/index.js";
 
 const DEFAULT_REFRESH: RefreshInterval = "1day";
 const timers = new Map<string, NodeJS.Timeout>();
+/** warmUp 时最多同时拉取的信源数，避免启动瞬间全量并发 */
+const WARMUP_CONCURRENCY = 5;
 
 
 async function pullSource(ref: string, cacheDir: string, refreshInterval?: RefreshInterval): Promise<void> {
   try {
     await getItems(ref, { cacheDir, refreshInterval: refreshInterval ?? DEFAULT_REFRESH, writeDb: true });
-    logger.info("scheduler", "信源拉取完成", { source_url: ref });
+    logger.info("scheduler", "拉取成功", { source_url: ref });
   } catch (err) {
-    logger.warn("scheduler", "信源拉取失败", {
+    logger.warn("scheduler", "拉取失败", {
       source_url: ref,
       err: err instanceof Error ? err.message : String(err),
     });
@@ -44,7 +46,6 @@ async function reschedule(cacheDir: string): Promise<void> {
   } catch {
     sources = [];
   }
-  let count = 0;
   for (const src of sources) {
     const ref = resolveRef(src);
     if (!ref) continue;
@@ -52,39 +53,30 @@ async function reschedule(cacheDir: string): Promise<void> {
     const intervalMs = refreshIntervalToMs(interval);
     if (!intervalMs) continue;
     const timer = setInterval(() => {
-      pullSource(ref, cacheDir, src.refresh ?? undefined).catch((err) => {
-        logger.warn("scheduler", "信源定时拉取异常", {
-          source_url: ref,
-          err: err instanceof Error ? err.message : String(err),
-        });
-      });
+      pullSource(ref, cacheDir, src.refresh ?? undefined);
     }, intervalMs);
     timers.set(ref, timer);
-    count++;
-    logger.info("scheduler", "信源已调度", { source_url: ref, refresh: interval });
   }
-  logger.info("scheduler", "调度完成", { sourceCount: count });
 }
 
 
-/** 启动时对所有信源触发一次后台拉取 */
+/** 启动时对所有信源触发一次后台拉取（限制并发，避免一次性过多） */
 function warmUp(cacheDir: string): void {
   getAllSources()
     .then((sources) => {
-      for (const src of sources) {
-        const ref = resolveRef(src);
-        if (!ref) continue;
-        pullSource(ref, cacheDir, src.refresh ?? undefined).catch((err) => {
-          logger.warn("scheduler", "启动预热失败", {
-            source_url: ref,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
+      const refs = sources
+        .map((src) => ({ ref: resolveRef(src), refresh: src.refresh as RefreshInterval | undefined }))
+        .filter((x): x is { ref: string; refresh: RefreshInterval | undefined } => !!x.ref);
+      const runBatch = (start: number): void => {
+        if (start >= refs.length) return;
+        const batch = refs.slice(start, start + WARMUP_CONCURRENCY);
+        Promise.all(
+          batch.map(({ ref, refresh }) => pullSource(ref, cacheDir, refresh))
+        ).then(() => runBatch(start + batch.length));
+      };
+      runBatch(0);
     })
-    .catch((err) => {
-      logger.warn("scheduler", "读取 sources.json 失败", { err: err instanceof Error ? err.message : String(err) });
-    });
+    .catch(() => {});
 }
 
 
@@ -96,18 +88,11 @@ export async function initScheduler(cacheDir = "cache"): Promise<void> {
     const watcher = watch(SOURCES_CONFIG_PATH, () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        logger.info("scheduler", "检测到 sources.json 变化，重新调度");
-        reschedule(cacheDir)
-          .then(() => warmUp(cacheDir))
-          .catch((err) => {
-            logger.warn("scheduler", "重调度失败", { err: err instanceof Error ? err.message : String(err) });
-          });
+        reschedule(cacheDir).then(() => warmUp(cacheDir)).catch(() => {});
       }, 500);
     });
-    watcher.on("error", (err) => {
-      logger.warn("scheduler", "监听 sources.json 出错", { err: err.message });
-    });
+    watcher.on("error", () => {});
   } catch {
-    logger.warn("scheduler", "sources.json 尚不存在，跳过文件监听（创建后请重启服务）");
+    // sources.json 尚不存在，跳过文件监听
   }
 }

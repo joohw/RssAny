@@ -8,6 +8,7 @@
     { href: '/sources', label: '信源' },
     { href: '/channels', label: '频道' },
     { href: '/logs', label: '日志' },
+    { href: '/mcp', label: 'MCP' },
     { href: '/parse', label: 'Parse' },
     { href: '/extractor', label: 'Enrich' },
     { href: '/plugins', label: '插件' },
