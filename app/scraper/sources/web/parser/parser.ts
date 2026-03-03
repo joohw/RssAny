@@ -5,8 +5,8 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { cacheKey as cacherCacheKey } from "../../../../core/cacher/index.js";
 import { applyPurify } from "../fetcher/purify.js";
-import { chatJson } from "../../../../core/llm/index.js";
-import { getLLMConfig } from "../../../../core/llm/config.js";
+import { chatJson } from "../../../../agent/llm.js";
+import { getLLMConfig } from "../../../../agent/config.js";
 import type { FeedItem } from "../../../../types/feedItem.js";
 import type { ParsedEntry } from "./types.js";
 

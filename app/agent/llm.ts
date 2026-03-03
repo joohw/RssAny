@@ -3,7 +3,7 @@
 import OpenAI from "openai";
 import { getLLMConfig } from "./config.js";
 import type { LLMConfig } from "./config.js";
-import { logger } from "../logger/index.js";
+import { logger } from "../core/logger/index.js";
 
 
 /** 合并调用方配置与环境变量配置 */

@@ -17,7 +17,7 @@ import type { RefreshInterval } from "../utils/refreshInterval.js";
 import { VALID_INTERVALS } from "../utils/refreshInterval.js";
 import { initSources as initSites } from "../scraper/sources/index.js";
 import { initScheduler, SOURCES_GROUP } from "../scraper/scheduler/index.js";
-import * as scheduler from "../core/scheduler/index.js";
+import * as scheduler from "../scheduler/index.js";
 import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CHANNELS_CONFIG_PATH, CACHE_DIR } from "../config/paths.js";
 import { getAllChannelConfigs, collectAllSourceRefs } from "../core/channel/index.js";
 import { extractFromLink } from "../scraper/sources/web/extractor/index.js";
@@ -30,6 +30,7 @@ import { queryItems, queryFeedItems, getPendingPushItems, markPushed, queryLogs 
 import { enrichQueue } from "../scraper/enrich/index.js";
 import { logger } from "../core/logger/index.js";
 import { createMcpHandler } from "../mcp/server.js";
+import { createFeedAgent } from "../agent/index.js";
 
 
 const PORT = Number(process.env.PORT) || 3751;
@@ -112,6 +113,41 @@ echo "Restart Cursor to take effect."
       "Content-Type": "application/x-sh; charset=utf-8",
       "Content-Disposition": "inline; filename=install-mcp.sh",
     });
+  });
+  // Chat：pi-agent + MCP 工具，SSE 流式响应
+  app.post("/api/chat/stream", async (c) => {
+    try {
+      const body = await c.req.json<{ prompt?: string }>();
+      const prompt = body?.prompt?.trim();
+      if (!prompt) return c.json({ error: "prompt 不能为空" }, 400);
+      const agent = createFeedAgent();
+      return streamSSE(c, async (stream) => {
+        const send = (event: string, data: unknown) => {
+          stream.writeSSE({ event, data: JSON.stringify(data) }).catch(() => {});
+        };
+        await send("start", {});
+        agent.subscribe((e) => {
+          if (e.type === "message_update" && e.assistantMessageEvent.type === "text_delta") {
+            send("text_delta", { delta: e.assistantMessageEvent.delta });
+          } else if (e.type === "tool_execution_start") {
+            send("tool_start", { toolCallId: e.toolCallId, toolName: e.toolName, args: e.args });
+          } else if (e.type === "tool_execution_end") {
+            send("tool_end", { toolCallId: e.toolCallId, toolName: e.toolName, isError: e.isError });
+          } else if (e.type === "agent_end") {
+            send("done", {});
+          }
+        });
+        try {
+          await agent.prompt(prompt);
+        } catch (err) {
+          send("error", { message: err instanceof Error ? err.message : String(err) });
+        } finally {
+          stream.close();
+        }
+      });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
   });
   // 供 MCP 等页面获取局域网访问地址（便于同网段设备或 Cursor 使用）
   app.get("/api/server-info", (c) => {

@@ -7,7 +7,7 @@ import { getItems } from "../../feeder/index.js";
 import { SOURCES_CONFIG_PATH } from "../../config/paths.js";
 import type { RefreshInterval } from "../../utils/refreshInterval.js";
 import { refreshIntervalToMs, cronToRefreshInterval } from "../../utils/refreshInterval.js";
-import * as scheduler from "../../core/scheduler/index.js";
+import * as scheduler from "../../scheduler/index.js";
 import { logger } from "../../core/logger/index.js";
 
 

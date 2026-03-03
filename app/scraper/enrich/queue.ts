@@ -6,7 +6,7 @@ import type { SourceContext } from "../sources/types.js";
 import type { EnrichTask, EnrichItemResult, EnrichConfig, EnrichFn, EnrichSubmitOptions } from "./types.js";
 import { loadEnrichConfig } from "./config.js";
 import { logger } from "../../core/logger/index.js";
-import * as scheduler from "../../core/scheduler/index.js";
+import * as scheduler from "../../scheduler/index.js";
 
 
 const ENRICH_GROUP = "enrich";

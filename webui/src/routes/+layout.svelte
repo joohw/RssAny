@@ -5,6 +5,7 @@
 
   const allLinks: NavLink[] = [
     { href: '/channels/all', label: '信息流' },
+    { href: '/chat', label: 'Chat' },
     { href: '/sources', label: '信源' },
     { href: '/admin', label: 'Admin' },
   ];
@@ -15,6 +16,9 @@
     }
     if (link.href === '/admin') {
       return pathname.startsWith('/admin');
+    }
+    if (link.href === '/chat') {
+      return pathname.startsWith('/chat');
     }
     return pathname.startsWith(link.href);
   }
