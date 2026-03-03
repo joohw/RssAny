@@ -173,11 +173,12 @@ export function registerApiRoutes(app: Hono): void {
 
   app.get("/api/items", async (c) => {
     const sourceUrl = c.req.query("source") ?? undefined;
+    const author = c.req.query("author") ?? undefined;
     const q = c.req.query("q") ?? undefined;
     const limit = Math.min(Number(c.req.query("limit") ?? 20), 200);
     const offset = Number(c.req.query("offset") ?? 0);
     const lng = c.req.query("lng") ?? undefined;
-    const result = await queryItems({ sourceUrl, q, limit, offset });
+    const result = await queryItems({ sourceUrl, author, q, limit, offset });
     const items =
       lng && result.items.length > 0
         ? result.items.map((it) => {

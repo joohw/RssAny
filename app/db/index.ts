@@ -303,21 +303,26 @@ export async function queryItemsBySource(sourceUrl: string, limit = 50, since?: 
 }
 
 
-/** 查询条目列表，支持按 source_url 过滤、全文搜索与 since 时间过滤，返回分页结果 */
+/** 查询条目列表，支持按 source_url、author（模糊）过滤、全文搜索与 since 时间过滤，返回分页结果 */
 export async function queryItems(opts: {
   sourceUrl?: string;
+  author?: string;
   q?: string;
   limit?: number;
   offset?: number;
   since?: Date;
 }): Promise<{ items: DbItem[]; total: number }> {
   const db = await getDb();
-  const { sourceUrl, q, limit = 20, offset = 0, since } = opts;
+  const { sourceUrl, author, q, limit = 20, offset = 0, since } = opts;
   const conditions: string[] = [];
   const params: Record<string, unknown> = { limit, offset };
   if (sourceUrl) {
     conditions.push("i.source_url = @sourceUrl");
     params.sourceUrl = sourceUrl;
+  }
+  if (author && author.trim().length >= 2) {
+    conditions.push("instr(i.author, @author) > 0");
+    params.author = author.trim();
   }
   if (q) {
     conditions.push("i.rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH @q)");
