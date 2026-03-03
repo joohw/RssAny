@@ -4,6 +4,8 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { cacheKey } from "../core/cacher/index.js";
 import { getSource } from "../scraper/sources/index.js";
+import { getMatchedEnrichPlugin, getMatchedPipelinePlugins } from "../scraper/sources/web/pluginLoader.js";
+import { buildEnrichContext } from "../scraper/sources/web/index.js";
 import { AuthRequiredError } from "../scraper/auth/index.js";
 import { buildRssXml } from "./rss.js";
 import type { RssChannel, RssEntry } from "./types.js";
@@ -11,10 +13,11 @@ import type { FeedItem } from "../types/feedItem.js";
 import { normalizeAuthor } from "../types/feedItem.js";
 import { getEffectiveItemFields } from "../types/feedItem.js";
 import type { FeederConfig } from "./types.js";
+import type { SourceContext } from "../scraper/sources/types.js";
 import { upsertItems, updateItemContent } from "../db/index.js";
 import { enrichQueue } from "../scraper/enrich/index.js";
 import { writeItems, writeItem } from "../writer/index.js";
-import { runPipeline, runPipelineOnItem } from "../pipeline/index.js";
+import { runPipeline } from "../pipeline/index.js";
 import { logger } from "../core/logger/index.js";
 
 
@@ -77,7 +80,67 @@ function toRssEntry(item: FeedItem, lng?: string | null): RssEntry {
 const generatingKeys = new Map<string, Promise<{ items: FeedItem[] }>>();
 
 
-/** 执行生成流程：获取条目列表；若信源有 enrichItem 则提交到全局 EnrichQueue 后台补全 */
+/** 执行 pipeline：config 步骤 + 匹配的 pipeline 插件 */
+async function runPipelineWithPlugins(
+  items: FeedItem[],
+  ctx: { sourceUrl: string; isEnriched?: boolean },
+): Promise<FeedItem[]> {
+  const result = await runPipeline(items, ctx);
+  const pluginCtx = { sourceUrl: ctx.sourceUrl, isEnriched: ctx.isEnriched };
+  const out: FeedItem[] = [];
+  for (let i = 0; i < result.length; i++) {
+    let item = result[i];
+    const plugins = getMatchedPipelinePlugins(item, pluginCtx);
+    for (const p of plugins) {
+      try {
+        item = await p.run(item, pluginCtx);
+      } catch (err) {
+        logger.warn("feeder", "Pipeline 插件执行失败", {
+          pluginId: p.id,
+          item_url: item.link,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+
+/** 单条 pipeline（config + 匹配的插件） */
+async function runPipelineOnItemWithPlugins(
+  item: FeedItem,
+  ctx: { sourceUrl: string; isEnriched?: boolean },
+): Promise<FeedItem> {
+  const [out] = await runPipelineWithPlugins([item], ctx);
+  return out;
+}
+
+
+/** 构建组合 enrich 函数：source.enrichItem 优先，无则用匹配的 enrich 插件补充 */
+function buildEnrichFn(
+  source: { enrichItem?: (item: FeedItem, ctx: SourceContext) => Promise<FeedItem> },
+  listUrl: string,
+  ctx: SourceContext,
+): (item: FeedItem) => Promise<FeedItem> {
+  const enrichCtx = buildEnrichContext(ctx);
+  enrichCtx.sourceUrl = listUrl;
+  return async (item: FeedItem) => {
+    let result = item;
+    if (source.enrichItem) {
+      result = await source.enrichItem!(item, ctx);
+    }
+    const plugin = getMatchedEnrichPlugin(result, { sourceUrl: listUrl });
+    if (plugin) {
+      result = await plugin.enrichItem(result, enrichCtx);
+    }
+    return result;
+  };
+}
+
+
+/** 执行生成流程：获取条目列表；若信源有 enrichItem 或匹配 enrich 插件则提交到 EnrichQueue */
 async function generateAndCache(listUrl: string, key: string, config: FeederConfig): Promise<{ items: FeedItem[] }> {
   const { cacheDir = "cache", includeContent = true, headless } = config;
   const source = getSource(listUrl);
@@ -95,7 +158,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     i.sourceRef = listUrl;
     i.author = normalizeAuthor(i.author);
   });
-  items = await runPipeline(items, { sourceUrl: listUrl, isEnriched: false });
+  items = await runPipelineWithPlugins(items, { sourceUrl: listUrl, isEnriched: false });
   if (cacheDir) {
     await writeItemsCache(cacheDir, key, items);
     logger.debug("feeder", "feeds 缓存写入", { key, count: items.length });
@@ -109,18 +172,21 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
       logger.warn("writer", "批量写入失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
     );
   }
-  if (!includeContent || items.length === 0 || source.enrichItem == null) {
+  const hasEnrich =
+    source.enrichItem != null || items.some((i) => getMatchedEnrichPlugin(i, { sourceUrl: listUrl }));
+  if (!includeContent || items.length === 0 || !hasEnrich) {
     return { items };
   }
+  const enrichFn = (item: FeedItem, _ctx: SourceContext) => buildEnrichFn(source, listUrl, ctx)(item);
   await enrichQueue.submit(
     items,
-    source.enrichItem.bind(source),
+    enrichFn,
     ctx,
     {
       sourceUrl: listUrl,
       onItemDone: async (enrichedItem, index) => {
         enrichedItem.sourceRef = listUrl;
-        const processed = await runPipelineOnItem(enrichedItem, { sourceUrl: listUrl, isEnriched: true });
+        const processed = await runPipelineOnItemWithPlugins(enrichedItem, { sourceUrl: listUrl, isEnriched: true });
         items[index] = processed;
         if (config.writeDb) {
           updateItemContent(processed).catch((err) =>

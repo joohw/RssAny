@@ -1,24 +1,11 @@
-// EmailSource：IMAP 邮件信源，将收件箱最新邮件转为 FeedItem 列表
+// 内置 IMAP 邮件插件：匹配 imap://、imaps:// 协议 URL
 
 import { ImapFlow } from "imapflow";
+import { logger } from "../../app/core/logger/index.js";
 import { simpleParser } from "mailparser";
 import { createHash } from "node:crypto";
-import type { Source as RssSource, SourceContext } from "../types.js";
-import type { FeedItem } from "../../../types/feedItem.js";
-import { logger } from "../../../core/logger/index.js";
 
-
-
-// 解析 IMAP URL：格式 imaps://user%40host:pass@imap.host:993/INBOX?limit=30
-function parseImapUrl(sourceId: string): {
-  host: string;
-  port: number;
-  secure: boolean;
-  user: string;
-  pass: string;
-  folder: string;
-  limit: number;
-} {
+function parseImapUrl(sourceId) {
   const url = new URL(sourceId);
   const host = url.hostname;
   const port = url.port ? parseInt(url.port, 10) : 993;
@@ -30,22 +17,17 @@ function parseImapUrl(sourceId: string): {
   return { host, port, secure, user, pass, folder, limit };
 }
 
-
-
-// 根据 messageId 或 uid@host 生成唯一 guid
-function makeGuid(messageId: string | null | undefined, uid: number, host: string): string {
+function makeGuid(messageId, uid, host) {
   const raw = messageId ?? `${uid}@${host}`;
   return createHash("sha256").update(raw).digest("hex");
 }
 
-
-
-/** 内置 EmailSource：匹配所有 imap:// 和 imaps:// 协议 URL，刷新间隔 30 分钟 */
-export const emailSource: RssSource = {
+export default {
   id: "__email__",
   pattern: /^imaps?:\/\//,
+  priority: 0,
   refreshInterval: "30min",
-  async fetchItems(sourceId: string, _ctx: SourceContext): Promise<FeedItem[]> {
+  async fetchItems(sourceId, _ctx) {
     const { host, port, secure, user, pass, folder, limit } = parseImapUrl(sourceId);
     const client = new ImapFlow({
       host,
@@ -55,16 +37,11 @@ export const emailSource: RssSource = {
       logger: false,
     });
 
-    // IMAP 底层 socket 出错会通过 EventEmitter 的 error 事件抛出，必须显式监听避免进程崩溃。
     client.on("error", (err) => {
-      logger.error("source", "IMAP 连接异常", {
-        err: err instanceof Error ? err.message : String(err),
-        host,
-        folder,
-      });
+      logger.error("source", "IMAP 连接异常", { err: err?.message, host, folder });
     });
 
-    const items: FeedItem[] = [];
+    const items = [];
     let connected = false;
     try {
       await client.connect();
@@ -94,29 +71,21 @@ export const emailSource: RssSource = {
             const summary = textBody?.slice(0, 300) || undefined;
             items.push({ guid, title, link, pubDate, author, summary, content });
           } catch (err) {
-            logger.warn("source", "解析单封邮件失败", { err: err instanceof Error ? err.message : String(err) });
+            logger.warn("source", "解析单封邮件失败", { err: err?.message });
           }
         }
       } finally {
         lock.release();
       }
     } catch (err) {
-      logger.warn("source", "拉取 IMAP 邮件失败", {
-        err: err instanceof Error ? err.message : String(err),
-        host,
-        folder,
-      });
+      logger.warn("source", "拉取 IMAP 邮件失败", { err: err?.message, host, folder });
       return [];
     } finally {
       if (connected && client.usable) {
         try {
           await client.logout();
         } catch (err) {
-          logger.warn("source", "IMAP 退出连接失败", {
-            err: err instanceof Error ? err.message : String(err),
-            host,
-            folder,
-          });
+          logger.warn("source", "IMAP 退出连接失败", { err: err?.message, host, folder });
         }
       } else {
         client.close();

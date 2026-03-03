@@ -17,10 +17,14 @@ export interface SourceContext {
 
 /** 统一信源接口：不论是网页、RSS Feed、邮件还是 API，均实现此接口产出 FeedItem[] */
 export interface Source {
-  /** 信源唯一标识，如 "xiaohongshu"、"__rss__"、"email-inbox" */
+  /** 信源唯一标识，如 "xiaohongshu"、"__rss__"、"__email__" */
   readonly id: string;
-  /** 匹配 sourceId 的模式（URL、email://、api:// 等协议均可） */
+  /** 匹配 sourceId 的模式（URL、email://、api:// 等协议均可）；若提供 match 则优先用 match */
   readonly pattern: string | RegExp;
+  /** 可选：自定义匹配函数，优先级高于 pattern（用于 RSS 的 looksLikeFeed 等） */
+  readonly match?: (sourceId: string) => boolean;
+  /** 可选：匹配优先级，数值越小越优先；默认 100 */
+  readonly priority?: number;
   /** 条目有效时间窗口：声明该信源产出的 FeedItem 生命周期，作用于缓存键、DB 查询和调度间隔 */
   readonly refreshInterval?: RefreshInterval;
   /** 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080；未设置则使用 env HTTP_PROXY */

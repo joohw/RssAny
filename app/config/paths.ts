@@ -41,6 +41,15 @@ export const BUILTIN_PLUGINS_DIR = join(process.cwd(), "plugins");
 export const USER_PLUGINS_DIR = join(USER_DIR, "plugins");
 
 
+/** 三阶段插件子目录：sources（信源） / enrich（补全） / pipeline（二次加工） */
+export const BUILTIN_SOURCES_DIR = join(BUILTIN_PLUGINS_DIR, "sources");
+export const USER_SOURCES_DIR = join(USER_PLUGINS_DIR, "sources");
+export const BUILTIN_ENRICH_DIR = join(BUILTIN_PLUGINS_DIR, "enrich");
+export const USER_ENRICH_DIR = join(USER_PLUGINS_DIR, "enrich");
+export const BUILTIN_PIPELINE_DIR = join(BUILTIN_PLUGINS_DIR, "pipeline");
+export const USER_PIPELINE_DIR = join(USER_PLUGINS_DIR, "pipeline");
+
+
 /** 检查路径是否存在 */
 async function pathExists(p: string): Promise<boolean> {
   try {
@@ -71,6 +80,9 @@ export async function initUserDir(): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
   await mkdir(CACHE_DIR, { recursive: true });
   await mkdir(USER_PLUGINS_DIR, { recursive: true });
+  await mkdir(USER_SOURCES_DIR, { recursive: true });
+  await mkdir(USER_ENRICH_DIR, { recursive: true });
+  await mkdir(USER_PIPELINE_DIR, { recursive: true });
   await migrateFile(join(process.cwd(), "sites.json"), SITES_CONFIG_PATH);
   await migrateFile(join(process.cwd(), "subscriptions.json"), SOURCES_CONFIG_PATH);
   await migrateFile(join(process.cwd(), "data", "rssany.db"), join(DATA_DIR, "rssany.db"));

@@ -48,7 +48,7 @@ function watchPlugins(): void {
     }, 300);
   };
   for (const dir of [BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR]) {
-    const watcher = watch(dir, { recursive: false }, (eventType, filename) => {
+    const watcher = watch(dir, { recursive: true }, (eventType, filename) => {
       if (!filename || !PLUGIN_WATCH_EXTS.some((ext) => filename.endsWith(ext))) return;
       if (eventType === "rename" || eventType === "change") debouncedReload();
     });

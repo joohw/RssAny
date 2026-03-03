@@ -1,13 +1,12 @@
-// 统一信源注册表：汇聚 WebSource 插件、RssSource、genericWebSource，提供 getSource 查找入口
+// 统一信源注册表：汇聚 WebSource 插件、Source 插件（RSS/Email）、genericWebSource，提供 getSource 查找入口
 
-import { loadPlugins, createWebSource, genericWebSource, setLoadedSites } from "./web/index.js";
-import { rssSource, looksLikeFeed } from "./rss/index.js";
-import { emailSource } from "./email/index.js";
+import { createWebSource, genericWebSource, setLoadedSites } from "./web/index.js";
+import { loadSiteAndSourcePlugins, loadEnrichPlugins, loadPipelinePlugins } from "./web/pluginLoader.js";
 import type { Source } from "./types.js";
 import { logger } from "../../core/logger/index.js";
 
 
-/** 所有已注册的信源（优先级从高到低：插件 → RssSource → genericWebSource） */
+/** 所有已注册的信源（按 priority 排序后迭代匹配） */
 export const registeredSources: Source[] = [];
 
 /** 将字符串 URL 模式转为正则：{placeholder} 匹配单个路径段，末尾允许 query */
@@ -23,25 +22,18 @@ function sourcePatternToRegex(pattern: string | RegExp): RegExp {
 }
 
 
-/** 根据 sourceId 查找匹配度最高的 Source */
+/** 根据 sourceId 查找匹配度最高的 Source；按 priority 升序，优先用 match 否则用 pattern */
 export function getSource(sourceId: string): Source {
-  // 优先：IMAP 邮件信源
-  if (/^imaps?:\/\//.test(sourceId)) return emailSource;
-  // 次优先：插件（具体 URL 模式）
-  const webPlugins = registeredSources.filter((s) => s.id !== "__rss__" && s.id !== "generic");
-  for (const source of webPlugins) {
-    try {
-      const regex = sourcePatternToRegex(source.pattern);
-      if (regex.test(sourceId)) return source;
-    } catch {
-      // ignore invalid plugin pattern and continue matching others
-    }
+  for (const source of registeredSources) {
+    const matches = source.match ? source.match(sourceId) : (() => {
+      try {
+        return sourcePatternToRegex(source.pattern).test(sourceId);
+      } catch {
+        return false;
+      }
+    })();
+    if (matches) return source;
   }
-  // 次优先：标准 Feed URL（启发式判断）
-  if (looksLikeFeed(sourceId)) {
-    return rssSource;
-  }
-  // 兜底：通用 WebSource（LLM 解析）
   return genericWebSource;
 }
 
@@ -52,15 +44,27 @@ export function getSourceById(id: string): Source | undefined {
 }
 
 
-/** 初始化所有信源：加载插件、构建注册表 */
+/** 初始化所有信源及 enrich/pipeline 插件：加载三阶段插件、构建注册表 */
 export async function initSources(): Promise<void> {
-  const sites = await loadPlugins();
+  const [siteResult] = await Promise.all([
+    loadSiteAndSourcePlugins(),
+    loadEnrichPlugins(),
+    loadPipelinePlugins(),
+  ]);
+  const { sites, sources: sourcePlugins } = siteResult;
   setLoadedSites(sites);
   registeredSources.length = 0;
-  for (const site of sites) {
-    registeredSources.push(createWebSource(site));
-  }
-  registeredSources.push(rssSource);
-  registeredSources.push(genericWebSource);
-  logger.info("source", "信源已注册", { total: registeredSources.length, pluginCount: sites.length });
+  const webSources = sites.map((s) => createWebSource(s));
+  const all: Source[] = [
+    ...sourcePlugins,
+    ...webSources,
+    genericWebSource,
+  ];
+  all.sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
+  registeredSources.push(...all);
+  logger.info("source", "信源已注册", {
+    total: registeredSources.length,
+    siteCount: sites.length,
+    sourcePluginCount: sourcePlugins.length,
+  });
 }
