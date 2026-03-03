@@ -96,33 +96,42 @@
     };
   }
 
-  function buildUrl(offset: number, filter: string): string {
+  function feedsUrl(offset: number, filter: string): string {
+    const channelId = filter === 'all' ? 'all' : filter;
     const params = new URLSearchParams();
     params.set('limit', String(PAGE_SIZE));
     params.set('offset', String(offset));
-    if (filter !== 'all') params.set('sub', filter);
     if (todayOnly) {
       const d = todayStr();
       params.set('since', d);
       params.set('until', d);
     }
-    return `/api/feed?${params.toString()}`;
+    return `/api/channels/${encodeURIComponent(channelId)}/feeds?${params.toString()}`;
   }
 
-  /** 初始加载 / 刷新：重置列表，从第一页开始 */
+  /** 加载频道列表（仅首次或刷新时） */
+  async function loadChannels(): Promise<void> {
+    try {
+      const res = await fetch('/api/channels');
+      const list: { id: string; title?: string }[] = await res.json();
+      channels = Array.isArray(list) ? list.map((s) => ({ id: s.id, title: s.title || s.id })) : [];
+    } catch {
+      channels = [];
+    }
+  }
+
+  /** 初始加载 / 刷新：频道取一次，feeds 按 channel 单独请求 */
   async function loadFeed(filter: string, silent = false) {
     if (!silent) { loading = true; loadError = ''; }
     try {
-      const res = await fetch(buildUrl(0, filter));
-      const data: { channels: { id: string; title?: string }[]; items: ApiItem[]; hasMore: boolean } = await res.json();
-      if (Array.isArray(data.channels)) {
-        channels = data.channels.map((s) => ({ id: s.id, title: s.title || s.id }));
-      }
+      if (channels.length === 0) await loadChannels();
       if (channels.length === 0) {
         allItems = [];
         loadError = '暂无频道，请在 <code>channels.json</code> 中配置';
         return;
       }
+      const res = await fetch(feedsUrl(0, filter));
+      const data: { items: ApiItem[]; hasMore: boolean } = await res.json();
       allItems = (data.items || []).map(mapApiItem);
       hasMore = !!data.hasMore;
       currentOffset = allItems.length;
@@ -139,7 +148,7 @@
     if (loadingMore || !hasMore) return;
     loadingMore = true;
     try {
-      const res = await fetch(buildUrl(currentOffset, activeFilter));
+      const res = await fetch(feedsUrl(currentOffset, activeFilter));
       const data: { items: ApiItem[]; hasMore: boolean } = await res.json();
       const newItems = (data.items || []).map(mapApiItem);
       allItems = [...allItems, ...newItems];
