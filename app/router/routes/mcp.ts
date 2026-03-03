@@ -1,7 +1,7 @@
 // MCP 路由：Streamable HTTP、安装脚本
 
 import type { Hono } from "hono";
-import { createMcpHandler } from "../../mcp/server.js";
+import { createMcpHandler } from "../../agent/mcp/server.js";
 
 export function registerMcpRoutes(app: Hono): void {
   // MCP：Streamable HTTP（SSE），GET 建 SSE / POST 发 JSON-RPC
