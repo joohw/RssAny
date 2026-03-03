@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fetchJson } from '$lib/api.js';
 
   interface Plugin {
     id: string;

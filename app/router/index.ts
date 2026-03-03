@@ -127,8 +127,8 @@ echo "Restart Cursor to take effect."
     const headlessParam = c.req.query("headless");
     const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
     const lng = c.req.query("lng") ?? undefined;
-    const httpId = "http-" + createHash("sha256").update(url).digest("hex").slice(0, 16);
     try {
+      const httpId = "http-" + createHash("sha256").update(url).digest("hex").slice(0, 16);
       const { items, fromCache } = await scheduler.enqueueWithResult(
         SOURCES_GROUP,
         httpId,

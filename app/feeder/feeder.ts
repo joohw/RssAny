@@ -23,12 +23,16 @@ const FEEDS_SUBDIR = "feeds";
 
 /** 从 feeds 缓存读取 items JSON */
 async function readItemsCache(cacheDir: string, key: string): Promise<FeedItem[] | null> {
+  const filePath = join(cacheDir, FEEDS_SUBDIR, `${key}.items.json`);
   try {
-    const raw = await readFile(join(cacheDir, FEEDS_SUBDIR, `${key}.items.json`), "utf-8");
+    const raw = await readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
     return (parsed as FeedItem[]).map((item) => ({ ...item, pubDate: item.pubDate ? new Date(item.pubDate) : new Date() }));
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      logger.debug("feeder", "feeds 缓存读取失败", { path: filePath, err: err instanceof Error ? err.message : String(err) });
+    }
     return null;
   }
 }
@@ -94,6 +98,7 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
   items = await runPipeline(items, { sourceUrl: listUrl, isEnriched: false });
   if (cacheDir) {
     await writeItemsCache(cacheDir, key, items);
+    logger.debug("feeder", "feeds 缓存写入", { key, count: items.length });
   }
   generatingKeys.delete(key);
   if (config.writeDb) {
@@ -149,6 +154,7 @@ export async function getItems(listUrl: string, config: FeederConfig = {}): Prom
   if (cacheDir) {
     const cachedItems = await readItemsCache(cacheDir, key);
     if (cachedItems !== null) {
+      logger.debug("feeder", "feeds 缓存命中", { key, count: cachedItems.length });
       cachedItems.forEach((i) => {
         i.sourceRef ??= listUrl;
         i.author = normalizeAuthor(i.author);

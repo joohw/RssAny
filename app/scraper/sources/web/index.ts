@@ -102,7 +102,7 @@ export const genericWebSource: Source = {
   async fetchItems(sourceId: string, ctx: SourceContext): Promise<FeedItem[]> {
     const res = await fetchHtmlFn(sourceId, {
       cacheDir: ctx.cacheDir,
-      useCache: false,
+      useCache: true,
       headless: ctx.headless,
       proxy: ctx.proxy,
     });
@@ -112,7 +112,7 @@ export const genericWebSource: Source = {
     const parsed = await parseHtml(res.body, {
       url: res.finalUrl ?? sourceId,
       cacheDir: ctx.cacheDir,
-      useCache: false,
+      useCache: true,
     });
     return parsed.items;
   },

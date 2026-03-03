@@ -6,7 +6,7 @@ import { resolveRef } from "../subscription/types.js";
 import { getItems } from "../../feeder/index.js";
 import { SOURCES_CONFIG_PATH } from "../../config/paths.js";
 import type { RefreshInterval } from "../../utils/refreshInterval.js";
-import { refreshIntervalToMs } from "../../utils/refreshInterval.js";
+import { refreshIntervalToMs, cronToRefreshInterval } from "../../utils/refreshInterval.js";
 import * as scheduler from "../../core/scheduler/index.js";
 import { logger } from "../../core/logger/index.js";
 
@@ -60,10 +60,11 @@ async function rescheduleSources(cacheDir: string): Promise<void> {
     } else if (!intervalOrCron || intervalOrCron <= 0) {
       continue;
     }
+    const cacheStrategy = src.refresh ?? (typeof intervalOrCron === "string" ? cronToRefreshInterval(intervalOrCron) : undefined) ?? DEFAULT_REFRESH;
     scheduler.schedule(
       ref,
       intervalOrCron,
-      createPullTask(ref, cacheDir, src.refresh ?? undefined),
+      createPullTask(ref, cacheDir, cacheStrategy),
       {
         retries: 2,
         retryDelayMs: 5000,
