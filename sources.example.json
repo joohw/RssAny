@@ -3,156 +3,559 @@
     {
       "ref": "https://www.theinformation.com/",
       "label": "The Information",
+      "description": "科技商业深度报道",
       "refresh": "1h"
     },
     {
       "ref": "https://techcrunch.com/category/artificial-intelligence/",
       "label": "TechCrunch AI",
+      "description": "AI 创业与产品资讯",
       "refresh": "1h"
     },
     {
       "ref": "https://www.technologyreview.com/",
       "label": "MIT Technology Review",
+      "description": "MIT 科技评论",
       "refresh": "1h"
     },
     {
       "ref": "https://venturebeat.com/",
       "label": "VentureBeat",
+      "description": "科技与创投新闻",
       "refresh": "1h"
     },
     {
       "ref": "https://slashdot.org/",
       "label": "Slashdot",
+      "description": "科技新闻聚合",
       "refresh": "1h"
     },
     {
       "ref": "https://news.ycombinator.com/newest",
       "label": "HN newest",
+      "description": "Hacker News 最新",
       "refresh": "30min"
     },
     {
       "ref": "https://x.com/elonmusk",
       "label": "elonmusk",
+      "description": "Elon Musk 推文",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/AIatMeta",
       "label": "Meta AI",
+      "description": "Meta AI 官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/OpenAI",
       "label": "OpenAI",
+      "description": "OpenAI 官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/GoogleAI",
       "label": "Google",
+      "description": "Google AI 官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/Anthropic",
       "label": "Anthropic",
+      "description": "Anthropic 官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/Tesla",
       "label": "Tesla",
+      "description": "特斯拉官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/Microsoft",
       "label": "Microsoft",
+      "description": "微软官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/NVIDIA",
       "label": "NVIDIA",
+      "description": "英伟达官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/NVIDIARobotics",
       "label": "NVIDIA Robotics",
+      "description": "NVIDIA 机器人",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/BostonDynamics",
       "label": "Boston Dynamics",
+      "description": "波士顿动力",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/xai",
       "label": "xAI",
+      "description": "xAI 官方",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/Figure_robot",
       "label": "Figure AI",
+      "description": "Figure 人形机器人",
       "refresh": "1h"
     },
     {
       "ref": "https://rss.arxiv.org/rss/cs.CL",
       "label": "arxiv cs.CL (NLP/LLM)",
+      "description": "NLP/大模型论文",
       "refresh": "1day"
     },
     {
       "ref": "https://rss.arxiv.org/rss/cs.LG",
       "label": "arxiv cs.LG (Machine Learning)",
+      "description": "机器学习论文",
       "refresh": "1day"
     },
     {
       "ref": "https://x.com/turingcom",
       "label": "Turing",
+      "description": "Turing 数据标注",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/scale_ai",
       "label": "Scale AI",
+      "description": "Scale AI 数据标注",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/HelloSurgeAI",
       "label": "Surge AI",
+      "description": "Surge AI 数据标注",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/labelbox",
       "label": "Labelbox",
+      "description": "Labelbox 数据标注平台",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/V7Labs",
       "label": "V7Labs",
+      "description": "V7 数据标注",
       "refresh": "1h"
     },
     {
       "ref": "https://supervisely.com/blog/",
       "label": "Supervisely",
+      "description": "计算机视觉标注平台",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/crowdgenbyappen",
       "label": "Appen",
+      "description": "Appen 数据标注",
       "refresh": "1h"
     },
     {
       "ref": "https://x.com/SegmentsAI",
       "label": "Segments.ai",
+      "description": "Segments 数据标注",
       "refresh": "1h"
     },
     {
       "ref": "https://www.kognic.com/articles",
       "label": "Kognic",
+      "description": "自动驾驶数据标注",
       "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/yoshuabengio",
+      "label": "Yoshua Bengio",
+      "description": "图灵奖得主，深度学习先驱",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/ylecun",
+      "label": "Yann LeCun",
+      "description": "图灵奖得主，卷积网络发明者",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/geoffreyhinton",
+      "label": "Geoffrey Hinton",
+      "description": "图灵奖得主，深度学习教父",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/AndrewYNg",
+      "label": "Andrew Ng",
+      "description": "Coursera 创始人，AI 教育",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/drfeifei",
+      "label": "李飞飞",
+      "description": "斯坦福 AI 实验室主任",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/percyliang",
+      "label": "Percy Liang",
+      "description": "斯坦福 CRFM 主任",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/ilyasut",
+      "label": "Ilya Sutskever",
+      "description": "OpenAI 联合创始人",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/timbrooks",
+      "label": "Tim Brooks",
+      "description": "OpenAI 研究员",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/stuartj_russell",
+      "label": "Stuart Russell",
+      "description": "《人工智能》教材作者",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/songhan_mit",
+      "label": "Song Han",
+      "description": "MIT 高效深度学习",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/lm_zheng",
+      "label": "郑海涛",
+      "description": "AI 研究者",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://x.com/chenkaidev",
+      "label": "陈恺",
+      "description": "AI 开发者",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://www.zhipuai.cn/zh/research",
+      "label": "智谱研究",
+      "description": "智谱 AI 研究院",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.worldlabs.ai/blog",
+      "label": "World Labs",
+      "description": "World Labs 博客",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.tesla.com/AI",
+      "label": "Tesla AI",
+      "description": "特斯拉 AI 与 FSD",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.sensetime.com/cn/technology-achievements",
+      "label": "商汤研究院",
+      "description": "商汤技术成果",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.selectdataset.com/",
+      "label": "Select Dataset",
+      "description": "数据集检索平台",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.moonshot.ai/",
+      "label": "Moonshot",
+      "description": "月之暗面",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.microsoft.com/en-us/research/blog/",
+      "label": "Microsoft Research",
+      "description": "微软研究院博客",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.csail.mit.edu/research",
+      "label": "MIT CSAIL",
+      "description": "MIT 计算机与 AI 实验室",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.appen.com/resources",
+      "label": "Appen Resources",
+      "description": "Appen 资源与白皮书",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.anthropic.com/research",
+      "label": "Anthropic Research",
+      "description": "Anthropic 研究论文",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.amii.ca/research-talent",
+      "label": "AMII",
+      "description": "加拿大 AI 研究所",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://www.5radar.com",
+      "label": "5radar",
+      "description": "AI 资讯聚合",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://trendshift.io/",
+      "label": "Trendshift",
+      "description": "AI 趋势追踪",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://tech.meituan.com/",
+      "label": "美团技术",
+      "description": "美团技术博客",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://research.google/",
+      "label": "Google Research",
+      "description": "Google 研究院",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://research.google/resources/datasets/",
+      "label": "Google Datasets",
+      "description": "Google 公开数据集",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://research.baidu.com/",
+      "label": "百度研究院",
+      "description": "百度 AI 研究院",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://pjlab-adg.github.io/publications/",
+      "label": "PJLab",
+      "description": "浦江实验室自动驾驶",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://paperswithcode.co/",
+      "label": "Papers with Code",
+      "description": "论文与代码检索",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://opendrivelab.com/EmbodiedAI",
+      "label": "OpenDriveLab Embodied",
+      "description": "具身智能与自动驾驶",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://opendrivelab.com/",
+      "label": "OpenDriveLab",
+      "description": "上海 AI 实验室自动驾驶",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://opendatalab.org.cn",
+      "label": "OpenDataLab",
+      "description": "开放数据平台",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://opencompass.org.cn/home",
+      "label": "OpenCompass",
+      "description": "大模型评测平台",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://openai.com/research/index/",
+      "label": "OpenAI Research",
+      "description": "OpenAI 研究论文",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://mlcommons.org/research/",
+      "label": "MLCommons",
+      "description": "MLCommons 基准与研究",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://mila.quebec/en",
+      "label": "Mila Quebec",
+      "description": "蒙特利尔 AI 研究所",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://lmsys.org/projects/",
+      "label": "LMSys",
+      "description": "大模型排行榜",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://intl.cloud.tencent.com/zh/dynamic/blogs/",
+      "label": "腾讯云博客",
+      "description": "腾讯云技术博客",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://huggingface.co/blog",
+      "label": "Hugging Face Blog",
+      "description": "Hugging Face 官方博客",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://github.com/deepseek-ai",
+      "label": "DeepSeek",
+      "description": "DeepSeek 开源项目",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://github.com/BAAI-WuDao/Paper-Article",
+      "label": "BAAI WuDao",
+      "description": "智源悟道论文",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://flageval.baai.ac.cn/#/news",
+      "label": "FlagEval",
+      "description": "智源大模型评测",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://deepmind.google/research/",
+      "label": "DeepMind Research",
+      "description": "DeepMind 研究",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://dataverse.harvard.edu",
+      "label": "Harvard Dataverse",
+      "description": "哈佛学术数据集",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://datahub.com/blog/",
+      "label": "DataHub",
+      "description": "数据工程博客",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://damo.alibaba.com/research-areas?language=en",
+      "label": "阿里达摩院",
+      "description": "阿里巴巴达摩院",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://crfm.stanford.edu",
+      "label": "Stanford CRFM",
+      "description": "斯坦福基础模型中心",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://brightdata.com/blog",
+      "label": "Bright Data",
+      "description": "数据采集与代理",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://bbs.huaweicloud.com/blogs",
+      "label": "华为云博客",
+      "description": "华为云技术博客",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://bair.berkeley.edu/blog/",
+      "label": "Berkeley BAIR",
+      "description": "伯克利 AI 研究院",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://arena.ai/blog/leaderboard-changelog/",
+      "label": "Arena.ai",
+      "description": "大模型竞技场更新",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://archive.ics.uci.edu",
+      "label": "UCI ML Repository",
+      "description": "UCI 机器学习数据集",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://amilabs.ai/research",
+      "label": "AMI Labs",
+      "description": "AMI 研究院",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://allenai.org",
+      "label": "Allen AI",
+      "description": "艾伦 AI 研究所",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://aizstar.com/",
+      "label": "AIzstar",
+      "description": "AI 资讯",
+      "refresh": "1h"
+    },
+    {
+      "ref": "https://ailab.tencent.com/ailab/en/paper/",
+      "label": "腾讯 AI Lab",
+      "description": "腾讯 AI Lab 论文",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://ai.meta.com/results/?content_types%5B0%5D=publication",
+      "label": "Meta AI Publications",
+      "description": "Meta AI 论文",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://agi-eval.org/evaluation/home",
+      "label": "AGI Eval",
+      "description": "AGI 评测",
+      "refresh": "1day"
+    },
+    {
+      "ref": "http://dev3.noahlab.com.hk/research.html",
+      "label": "Noah Lab",
+      "description": "香港 Noah 实验室",
+      "refresh": "1day"
+    },
+    {
+      "ref": "https://seed.bytedance.com/zh/research",
+      "label": "字节种子实验室",
+      "description": "字节跳动 AI 研究",
+      "refresh": "1day"
     },
     {
       "ref": "lingowhale://articles?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7",
       "label": "语鲸推荐文章",
+      "description": "语鲸推荐文章流",
       "refresh": "1h"
     },
     {
       "ref": "lingowhale://today?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7",
       "label": "语鲸今日文章",
+      "description": "语鲸今日精选",
       "refresh": "1h"
     }
   ]

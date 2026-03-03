@@ -5,7 +5,7 @@
   function go() {
     if (!urlInput.trim()) return;
     const fullUrl = urlInput.startsWith('http') ? urlInput : 'https://' + urlInput;
-    window.open('/parse/' + encodeURIComponent(fullUrl) + (headful ? '?headless=false' : ''), '_blank');
+    window.open('/admin/parse/' + encodeURIComponent(fullUrl) + (headful ? '?headless=false' : ''), '_blank');
   }
 </script>
 
@@ -43,7 +43,7 @@
   </div>
 
   <div class="info-box">
-    调用 <code>GET /parse/{'{url}'}</code>，使用站点插件的自定义 Parser（若有），否则回退到 LLM 解析。返回条目列表 JSON，可用于验证 Parser 规则是否正确识别标题、链接、摘要等字段。
+    调用 <code>GET /admin/parse/{'{url}'}</code>，使用站点插件的自定义 Parser（若有），否则回退到 LLM 解析。返回条目列表 JSON，可用于验证 Parser 规则是否正确识别标题、链接、摘要等字段。
   </div>
 </div>
 

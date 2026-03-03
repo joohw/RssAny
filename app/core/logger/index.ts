@@ -15,16 +15,13 @@ function writeDb(entry: LogEntry): void {
   });
 }
 
-function emit(level: LogLevel, category: LogCategory, message: string, meta?: { source_url?: string; [k: string]: unknown }): void {
-  const source_url = meta?.source_url;
+function emit(level: LogLevel, category: LogCategory, message: string, meta?: Record<string, unknown>): void {
   const payload = meta && Object.keys(meta).length > 0 ? { ...meta } : undefined;
-  if (payload?.source_url !== undefined) delete payload.source_url;
   const entry: LogEntry = {
     level,
     category,
     message,
     payload: payload && Object.keys(payload).length > 0 ? payload : undefined,
-    source_url,
     created_at: now(),
   };
 
@@ -35,16 +32,16 @@ function emit(level: LogLevel, category: LogCategory, message: string, meta?: { 
 
 /** 统一 logger：仅落库，不输出控制台；全体级别落库 */
 export const logger = {
-  error(category: LogCategory, message: string, meta?: { source_url?: string; [k: string]: unknown }) {
+  error(category: LogCategory, message: string, meta?: Record<string, unknown>) {
     emit("error", category, message, meta);
   },
-  warn(category: LogCategory, message: string, meta?: { source_url?: string; [k: string]: unknown }) {
+  warn(category: LogCategory, message: string, meta?: Record<string, unknown>) {
     emit("warn", category, message, meta);
   },
-  info(category: LogCategory, message: string, meta?: { source_url?: string; [k: string]: unknown }) {
+  info(category: LogCategory, message: string, meta?: Record<string, unknown>) {
     emit("info", category, message, meta);
   },
-  debug(category: LogCategory, message: string, meta?: { source_url?: string; [k: string]: unknown }) {
+  debug(category: LogCategory, message: string, meta?: Record<string, unknown>) {
     emit("debug", category, message, meta);
   },
 };

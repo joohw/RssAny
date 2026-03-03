@@ -28,38 +28,6 @@ function pickPubDate(record) {
   return new Date();
 }
 
-function pickCategoryText(raw) {
-  if (!raw || typeof raw !== "object") return "";
-  const zh = normalizeText(raw?.name?.zh);
-  if (zh) return zh;
-  const en = normalizeText(raw?.name?.en);
-  if (en) return en;
-  const name = normalizeText(raw?.name);
-  if (name) return name;
-  const combined = normalizeText(raw?.combined);
-  if (combined.includes("|")) {
-    const segments = combined.split("|").map((x) => normalizeText(x)).filter(Boolean);
-    if (segments.length >= 2) return segments[1] || segments[0];
-  }
-  return combined;
-}
-
-function extractCategories(attrs) {
-  if (!attrs || typeof attrs !== "object") return undefined;
-  const out = [];
-  const seen = new Set();
-  for (const value of Object.values(attrs)) {
-    if (!Array.isArray(value)) continue;
-    for (const raw of value) {
-      const text = pickCategoryText(raw);
-      if (!text || seen.has(text)) continue;
-      seen.add(text);
-      out.push(text);
-    }
-  }
-  return out.length > 0 ? out : undefined;
-}
-
 function toDatasetLink(name) {
   const normalized = normalizeText(name);
   if (!normalized) return null;
@@ -85,7 +53,6 @@ function toFeedItem(record) {
     pubDate: pickPubDate(record),
     author: author || undefined,
     summary: summary || undefined,
-    categories: extractCategories(record.attrs),
     sourceId: "opendatalab",
   };
 }

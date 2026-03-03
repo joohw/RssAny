@@ -146,7 +146,6 @@ function parseItemsFromReadme(markdown, baseDate) {
       link,
       pubDate,
       summary,
-      categories: [category],
       sourceId: SITE_ID,
     });
   }

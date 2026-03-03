@@ -13,6 +13,10 @@ export const USER_DIR = join(process.cwd(), ".rssany");
 export const DATA_DIR = join(USER_DIR, "data");
 
 
+/** 缓存目录：.rssany/cache/（fetched、parsed、extracted、feeds、domains、browser_data 等子目录）；环境变量 CACHE_DIR 可覆盖 */
+export const CACHE_DIR = process.env.CACHE_DIR ?? join(USER_DIR, "cache");
+
+
 /** 站点配置文件：.rssany/sites.json */
 export const SITES_CONFIG_PATH = join(USER_DIR, "sites.json");
 
@@ -65,6 +69,7 @@ async function migrateFile(from: string, to: string): Promise<void> {
 export async function initUserDir(): Promise<void> {
   await mkdir(USER_DIR, { recursive: true });
   await mkdir(DATA_DIR, { recursive: true });
+  await mkdir(CACHE_DIR, { recursive: true });
   await mkdir(USER_PLUGINS_DIR, { recursive: true });
   await migrateFile(join(process.cwd(), "sites.json"), SITES_CONFIG_PATH);
   await migrateFile(join(process.cwd(), "subscriptions.json"), SOURCES_CONFIG_PATH);

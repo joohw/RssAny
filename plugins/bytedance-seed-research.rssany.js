@@ -137,24 +137,6 @@ function getResearchPayload(html) {
 }
 
 
-function extractCategories(meta, locale) {
-  const areas = Array.isArray(meta?.ResearchArea) ? meta.ResearchArea : [];
-  const categories = [];
-  const seen = new Set();
-
-  for (const area of areas) {
-    const name = locale === "zh"
-      ? normalizeText(area?.ResearchAreaNameZh ?? area?.ResearchAreaName)
-      : normalizeText(area?.ResearchAreaName ?? area?.ResearchAreaNameZh);
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    categories.push(name);
-  }
-
-  return categories.length > 0 ? categories : undefined;
-}
-
-
 function buildItem(entry, kind, locale, origin) {
   const meta = entry?.ArticleMeta ?? {};
   const zh = entry?.ArticleSubContentZh ?? {};
@@ -179,7 +161,6 @@ function buildItem(entry, kind, locale, origin) {
   }
 
   const author = normalizeText(meta.Author);
-  const categories = extractCategories(meta, locale);
   const pubDate = parsePublishDate(meta.PublishDate);
 
   return {
@@ -189,7 +170,6 @@ function buildItem(entry, kind, locale, origin) {
     pubDate,
     author: author || undefined,
     summary: abstract || undefined,
-    categories,
   };
 }
 

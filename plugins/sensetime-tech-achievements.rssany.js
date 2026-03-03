@@ -84,7 +84,6 @@ function parseItemsFromHtml(html, finalUrl) {
       link,
       pubDate,
       summary: summary || undefined,
-      categories: tags.length > 0 ? tags : undefined,
     });
   }
 
@@ -130,7 +129,6 @@ async function fetchItemsFromApi(finalUrl) {
       link,
       pubDate,
       summary: summary || undefined,
-      categories: tags.length > 0 ? tags : undefined,
     });
   }
 

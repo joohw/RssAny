@@ -40,19 +40,6 @@ function toHttpUrl(rawUrl, baseUrl = DATAVERSE_ORIGIN) {
   }
 }
 
-function normalizeCategories(subjects) {
-  if (!Array.isArray(subjects)) return undefined;
-  const out = [];
-  const seen = new Set();
-  for (const raw of subjects) {
-    const value = normalizeText(raw);
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    out.push(value);
-  }
-  return out.length > 0 ? out : undefined;
-}
-
 function extractAuthor(record) {
   if (Array.isArray(record?.authors)) {
     const authors = record.authors.map((x) => normalizeText(x)).filter(Boolean);
@@ -139,7 +126,6 @@ function toFeedItem(record, index) {
     pubDate,
     author: extractAuthor(record),
     summary: summary || undefined,
-    categories: normalizeCategories(record.subjects),
     sourceId: "harvard-dataverse",
   };
 }

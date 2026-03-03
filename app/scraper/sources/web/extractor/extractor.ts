@@ -8,6 +8,7 @@ import { cacheKey as cacherCacheKey } from "../../../../core/cacher/index.js";
 import { fetchHtml } from "../fetcher/index.js";
 import type { RequestConfig } from "../fetcher/types.js";
 import type { FeedItem } from "../../../../types/feedItem.js";
+import { normalizeAuthor } from "../../../../types/feedItem.js";
 import type { ExtractedResult, ExtractorConfig } from "./types.js";
 import { logger } from "../../../../core/logger/index.js";
 
@@ -135,7 +136,7 @@ export async function extractItem(
       : item.pubDate;
   return {
     ...item,
-    author: extracted.author ?? item.author,
+    author: normalizeAuthor(extracted.author ?? item.author),
     title: extracted.title ?? item.title,
     summary: extracted.summary ?? item.summary,
     content: extracted.content ?? item.content,

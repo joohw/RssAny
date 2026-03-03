@@ -151,7 +151,6 @@ function parseOneEntry(liNode, currentYear, pageUrl) {
     pubDate,
     author,
     summary: buildSummary(author, periodical),
-    categories: badge ? [badge] : undefined,
     sourceId: SITE_ID,
   };
 }

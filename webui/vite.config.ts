@@ -11,20 +11,19 @@ export default defineConfig({
       '/api': `http://127.0.0.1:${HONO_PORT}`,
       '/auth': `http://127.0.0.1:${HONO_PORT}`,
       '/rss': `http://127.0.0.1:${HONO_PORT}`,
-      '/parse': {
+      '/admin/parse': {
         target: `http://127.0.0.1:${HONO_PORT}`,
-        // 只代理 /parse/<url> 形式，不代理 /parse 本身（SPA 路由）
         bypass(req) {
           const url = req.url ?? '';
-          if (url === '/parse' || url.startsWith('/parse?')) return url;
+          if (url === '/admin/parse' || url.startsWith('/admin/parse?')) return url;
           return undefined;
         },
       },
-      '/extractor': {
+      '/admin/extractor': {
         target: `http://127.0.0.1:${HONO_PORT}`,
         bypass(req) {
           const url = req.url ?? '';
-          if (url === '/extractor' || url.startsWith('/extractor?')) return url;
+          if (url === '/admin/extractor' || url.startsWith('/admin/extractor?')) return url;
           return undefined;
         },
       },

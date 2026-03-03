@@ -58,7 +58,7 @@
           title: typeof item.title === 'string' && item.title.trim() ? item.title : '(无标题)',
           link,
           summary: typeof item.summary === 'string' ? item.summary : undefined,
-          author: typeof item.author === 'string' ? item.author : undefined,
+          author: Array.isArray(item.author) ? item.author.join(', ') : (typeof item.author === 'string' ? item.author : undefined),
           pubDate: typeof item.pubDate === 'string' ? item.pubDate : undefined,
         };
       })

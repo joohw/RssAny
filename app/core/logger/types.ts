@@ -7,7 +7,6 @@ export type LogLevel = "error" | "warn" | "info" | "debug";
 /** 日志分类：按模块筛选，便于在 DB/控制台按 category 过滤 */
 export type LogCategory =
   | "feeder"   // RSS 生成与抓取
-  | "scheduler" // 定时拉取与重调度
   | "enrich"   // 正文提取队列
   | "db"       // 数据库写入
   | "auth"     // 认证与登录
@@ -16,7 +15,8 @@ export type LogCategory =
   | "llm"      // LLM 调用
   | "app"      // HTTP 服务、启动、隧道
   | "config"   // 配置与迁移
-  | "writer";  // 写文件模块（条目落盘到配置目录）
+  | "writer"   // 写文件模块（条目落盘到配置目录）
+  | "pipeline"; // 入库前处理链（翻译、打标签等）
 
 /** payload 常用字段约定（非强制）：便于查询与统计 */
 export interface LogPayloadConvention {
@@ -24,8 +24,6 @@ export interface LogPayloadConvention {
   err?: string;
   /** 任务/队列 ID */
   taskId?: string;
-  /** 条目 URL（与 source_url 区分：source_url=信源列表页） */
-  item_url?: string;
   /** 重试次数等 */
   retries?: number;
   [k: string]: unknown;
@@ -36,10 +34,8 @@ export interface LogEntry {
   level: LogLevel;
   category: LogCategory;
   message: string;
-  /** 可选上下文（err、taskId、item_url 等），落库时存为 JSON */
+  /** 可选上下文，落库时存为 JSON */
   payload?: Record<string, unknown>;
-  /** 信源 URL（列表页），便于按信源查日志 */
-  source_url?: string;
   created_at: string;
 }
 

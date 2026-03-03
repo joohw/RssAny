@@ -25,8 +25,12 @@ export interface SubscriptionSource {
   type?: SourceType;
   /** 显示名称，用于界面展示和报错信息（省略则显示 ref） */
   label?: string;
+  /** 简短描述，用于界面展示信源用途或内容说明 */
+  description?: string;
   /** 单源有效时间窗口覆盖：优先级高于 Source 声明；不填则使用 Source 声明 */
   refresh?: RefreshInterval;
+  /** 单源 cron 表达式（如 "0 9 * * *" 每天 9:00）；有值时优先于 refresh */
+  cron?: string;
   /** 单源代理覆盖：优先级高于 Source.proxy；不填则使用 Source.proxy 或 env HTTP_PROXY */
   proxy?: string;
 }

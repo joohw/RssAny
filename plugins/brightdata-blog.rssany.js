@@ -171,7 +171,6 @@ async function fetchFeedItems(feedUrl) {
       pubDate,
       author: author || undefined,
       summary: summary || undefined,
-      categories: finalCategories,
     });
   }
   return items;
@@ -263,7 +262,6 @@ function parseHtmlItems(root, baseUrl) {
       pubDate: new Date(),
       author: author || undefined,
       summary: summary || undefined,
-      categories: category ? [category] : undefined,
     });
   }
   return items;

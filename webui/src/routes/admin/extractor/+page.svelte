@@ -5,7 +5,7 @@
   function go() {
     if (!urlInput.trim()) return;
     const fullUrl = urlInput.startsWith('http') ? urlInput : 'https://' + urlInput;
-    window.open('/extractor/' + encodeURIComponent(fullUrl) + (headful ? '?headless=false' : ''), '_blank');
+    window.open('/admin/extractor/' + encodeURIComponent(fullUrl) + (headful ? '?headless=false' : ''), '_blank');
   }
 </script>
 
@@ -43,7 +43,7 @@
   </div>
 
   <div class="info-box">
-    调用 <code>GET /extractor/{'{url}'}</code>，优先使用插件自定义 Extractor，其次尝试 Readability，最后回退到 LLM 提取。返回 title、author、summary、content、pubDate 等字段，可用于验证正文提取效果。
+    调用 <code>GET /admin/extractor/{'{url}'}</code>，优先使用插件自定义 Extractor，其次尝试 Readability，最后回退到 LLM 提取。返回 title、author、summary、content、pubDate 等字段，可用于验证正文提取效果。
   </div>
 </div>
 

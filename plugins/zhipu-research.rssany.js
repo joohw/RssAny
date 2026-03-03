@@ -120,7 +120,6 @@ function buildItemsFromBlogsItems(blogsItems) {
       link,
       pubDate: Number.isNaN(pubDate.getTime()) ? new Date() : pubDate,
       summary: summary || undefined,
-      categories: category ? [category] : undefined,
     });
   }
   return items;
@@ -295,7 +294,6 @@ function buildItemsFromLeafSequence(html, titleIdMap) {
       link,
       pubDate,
       summary: summary || undefined,
-      categories: category ? [category] : undefined,
     });
   }
   return items;

@@ -169,18 +169,6 @@ function extractSummary(card, title) {
 }
 
 
-function extractCategories(card) {
-  const headings = collectUniqueTexts(card.querySelectorAll("h1, h2, h3, h4, h5, h6"));
-  const categoryLine = headings.find((text) => looksLikeCategory(text));
-  if (!categoryLine) return undefined;
-  const categories = categoryLine
-    .split("|")
-    .map((part) => normalizeText(part))
-    .filter(Boolean);
-  return categories.length > 0 ? categories : undefined;
-}
-
-
 async function fetchItems(sourceId, ctx) {
   const { html, finalUrl, status } = await ctx.fetchHtml(sourceId, { waitMs: 3500, purify: false });
   if (status >= 400) {
@@ -204,7 +192,6 @@ async function fetchItems(sourceId, ctx) {
 
     const pubDate = extractPubDateFromCard(card) ?? new Date();
     const summary = extractSummary(card, title);
-    const categories = extractCategories(card);
 
     items.push({
       guid: hashGuid(link),
@@ -213,7 +200,6 @@ async function fetchItems(sourceId, ctx) {
       pubDate,
       author: "Meta AI",
       summary,
-      categories,
       sourceId: "meta-ai-publications",
     });
   }

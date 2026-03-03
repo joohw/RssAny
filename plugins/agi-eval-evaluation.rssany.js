@@ -130,23 +130,6 @@ function buildSummary(record) {
   return clampText(detail);
 }
 
-function buildCategories(record, source) {
-  const raw = [
-    source,
-    normalizeText(record?.modality),
-    normalizeText(record?.type),
-    Number(record?.openStatus) === 1 ? "OPEN" : "CLOSED",
-  ];
-  const out = [];
-  const seen = new Set();
-  for (const value of raw) {
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    out.push(value);
-  }
-  return out.length > 0 ? out : undefined;
-}
-
 function toFeedItem(record, origin, source) {
   if (!record || typeof record !== "object") return null;
   const title = normalizeText(record.name);
@@ -163,7 +146,6 @@ function toFeedItem(record, origin, source) {
     pubDate: pickPubDate(record),
     author: "AGI-Eval",
     summary: buildSummary(record),
-    categories: buildCategories(record, source),
     sourceId: "agi-eval-evaluation",
   };
 }

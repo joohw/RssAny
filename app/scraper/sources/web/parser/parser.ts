@@ -155,7 +155,7 @@ function toFeedItem(entry: ParsedEntry, includeContent: boolean): FeedItem {
     title: entry.title,
     link: entry.link,
     pubDate: entry.published ? new Date(entry.published) : new Date(),
-    author: entry.author ? entry.author : undefined,
+    author: entry.author ? [entry.author] : undefined,
     summary: entry.description,
     content: includeContent ? entry.content : undefined,
   };

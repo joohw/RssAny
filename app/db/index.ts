@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
+import { normalizeAuthor } from "../types/feedItem.js";
 import type { LogEntry } from "../core/logger/types.js";
 import { DATA_DIR } from "../config/paths.js";
 import { emitFeedUpdated } from "../core/events/index.js";
@@ -30,6 +31,29 @@ function toMs(input: string | null | undefined): number | null {
   if (!input) return null;
   const ms = Date.parse(input);
   return Number.isNaN(ms) ? null : ms;
+}
+
+
+/** 从 DB 的 author 列解析为 string[]（支持 JSON 数组与旧版纯字符串） */
+export function parseAuthorFromDb(raw: string | null | undefined): string[] | undefined {
+  if (!raw?.trim()) return undefined;
+  try {
+    const p = JSON.parse(raw) as unknown;
+    if (Array.isArray(p)) return p.filter((s) => typeof s === "string").map((s) => String(s).trim()).filter(Boolean);
+    return [String(p).trim()];
+  } catch {
+    return [raw.trim()];
+  }
+}
+
+/** 将 raw DB row 转为 DbItem（解析 author 等） */
+function toDbItem(row: Record<string, unknown>): DbItem {
+  const author = parseAuthorFromDb(row.author as string) ?? null;
+  return { ...row, author } as DbItem;
+}
+
+function mapRowsToDbItems(rows: Record<string, unknown>[]): DbItem[] {
+  return rows.map(toDbItem);
 }
 
 
@@ -128,7 +152,8 @@ export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string)
     for (const item of rows) {
       const nextTitle = normalizeText(item.title) || null;
       const nextSummary = normalizeText(item.summary) || null;
-      const nextAuthor = normalizeText(item.author) || null;
+      const nextAuthorArr = normalizeAuthor(item.author);
+      const nextAuthor = nextAuthorArr?.length ? JSON.stringify(nextAuthorArr) : null;
       const nextPubDate =
         item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null);
       const info = stmt.run({
@@ -158,7 +183,8 @@ export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string)
         (isDateOnlyTitle(existing.title) || !normalizeText(existing.title));
       const shouldRepairSummary =
         !!nextSummary && normalizeText(existing.summary).length < nextSummary.length;
-      const shouldRepairAuthor = !!nextAuthor && !normalizeText(existing.author);
+      const existingAuthorArr = parseAuthorFromDb(existing.author);
+      const shouldRepairAuthor = !!nextAuthorArr?.length && !existingAuthorArr?.length;
 
       const existingPubDateMs = toMs(existing.pub_date);
       const existingFetchedAtMs = toMs(existing.fetched_at);
@@ -181,7 +207,7 @@ export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string)
       repairExistingStmt.run({
         id: item.guid,
         title: shouldRepairTitle ? nextTitle : existing.title,
-        author: shouldRepairAuthor ? nextAuthor : existing.author,
+        author: shouldRepairAuthor ? nextAuthor : (existing.author ?? null),
         summary: shouldRepairSummary ? nextSummary : existing.summary,
         pubDate: shouldRepairPubDate ? nextPubDate : existing.pub_date,
         fetchedAt: now,
@@ -206,39 +232,60 @@ export async function updateItemContent(item: FeedItem): Promise<void> {
   `).run({
     url: item.link,
     content: item.content ?? null,
-    author: item.author ?? null,
+    author: (() => {
+      const arr = normalizeAuthor(item.author);
+      return arr?.length ? JSON.stringify(arr) : null;
+    })(),
     pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null),
   });
 }
 
 
-/** 跨多信源分页查询条目，按发布时间降序，供首页信息流分页使用；查询 limit+1 条以判断是否还有下一页 */
+/** 跨多信源分页查询条目，按发布时间降序，供首页信息流分页使用；since/until 为日期范围（YYYY-MM-DD 或 ISO 字符串） */
 export async function queryFeedItems(
   sourceUrls: string[],
   limit: number,
   offset: number,
+  opts?: { since?: string; until?: string },
 ): Promise<{ items: DbItem[]; hasMore: boolean }> {
   if (sourceUrls.length === 0) return { items: [], hasMore: false };
   const db = await getDb();
   const placeholders = sourceUrls.map((_, i) => `@u${i}`).join(", ");
+  const conditions: string[] = [`source_url IN (${placeholders})`];
   const params: Record<string, unknown> = { lim: limit + 1, off: offset };
   sourceUrls.forEach((url, i) => { params[`u${i}`] = url; });
+  if (opts?.since) {
+    conditions.push("COALESCE(pub_date, fetched_at) >= @since");
+    params.since = opts.since.length === 10 ? `${opts.since}T00:00:00.000Z` : opts.since;
+  }
+  if (opts?.until) {
+    conditions.push("COALESCE(pub_date, fetched_at) < @until");
+    if (opts.until.length === 10) {
+      const d = new Date(opts.until + "T12:00:00Z");
+      d.setUTCDate(d.getUTCDate() + 1);
+      params.until = d.toISOString();
+    } else {
+      params.until = opts.until;
+    }
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = db.prepare(`
     SELECT * FROM items
-    WHERE source_url IN (${placeholders})
+    ${where}
     ORDER BY COALESCE(pub_date, fetched_at) DESC
     LIMIT @lim OFFSET @off
-  `).all(params) as DbItem[];
+  `).all(params) as Record<string, unknown>[];
   const hasMore = rows.length > limit;
-  return { items: hasMore ? rows.slice(0, limit) : rows, hasMore };
+  const items = mapRowsToDbItems(hasMore ? rows.slice(0, limit) : rows);
+  return { items, hasMore };
 }
 
 
 /** 按条目 id（guid）查询单条，供 MCP/API 获取详情 */
 export async function getItemById(id: string): Promise<DbItem | null> {
   const db = await getDb();
-  const row = db.prepare("SELECT * FROM items WHERE id = @id").get({ id }) as DbItem | undefined;
-  return row ?? null;
+  const row = db.prepare("SELECT * FROM items WHERE id = @id").get({ id }) as Record<string, unknown> | undefined;
+  return row ? toDbItem(row) : null;
 }
 
 
@@ -246,12 +293,13 @@ export async function getItemById(id: string): Promise<DbItem | null> {
 export async function queryItemsBySource(sourceUrl: string, limit = 50, since?: Date): Promise<DbItem[]> {
   const db = await getDb();
   const sinceClause = since ? "AND COALESCE(pub_date, fetched_at) >= @since" : "";
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT * FROM items
     WHERE source_url = @sourceUrl ${sinceClause}
     ORDER BY COALESCE(pub_date, fetched_at) DESC
     LIMIT @limit
-  `).all({ sourceUrl, limit, since: since?.toISOString() ?? null }) as DbItem[];
+  `).all({ sourceUrl, limit, since: since?.toISOString() ?? null }) as Record<string, unknown>[];
+  return mapRowsToDbItems(rows);
 }
 
 
@@ -285,9 +333,9 @@ export async function queryItems(opts: {
     FROM items i ${where}
     ORDER BY i.fetched_at DESC
     LIMIT @limit OFFSET @offset
-  `).all(params) as DbItem[];
+  `).all(params) as Record<string, unknown>[];
   const { count } = db.prepare(`SELECT COUNT(*) as count FROM items i ${where}`).get(params) as { count: number };
-  return { items: rows, total: count };
+  return { items: mapRowsToDbItems(rows), total: count };
 }
 
 
@@ -307,12 +355,13 @@ export async function markPushed(ids: string[]): Promise<void> {
 /** 查询待推送条目（pushed_at 为空且 content 不为空） */
 export async function getPendingPushItems(limit = 100): Promise<DbItem[]> {
   const db = await getDb();
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT * FROM items
     WHERE pushed_at IS NULL AND content IS NOT NULL
     ORDER BY fetched_at ASC
     LIMIT @limit
-  `).all({ limit }) as DbItem[];
+  `).all({ limit }) as Record<string, unknown>[];
+  return mapRowsToDbItems(rows);
 }
 
 
@@ -321,29 +370,27 @@ export async function insertLog(entry: LogEntry): Promise<void> {
   const db = await getDb();
   db.prepare(`
     INSERT INTO logs (level, category, message, payload, source_url, created_at)
-    VALUES (@level, @category, @message, @payload, @source_url, @created_at)
+    VALUES (@level, @category, @message, @payload, NULL, @created_at)
   `).run({
     level: entry.level,
     category: entry.category,
     message: entry.message,
     payload: entry.payload != null ? JSON.stringify(entry.payload) : null,
-    source_url: entry.source_url ?? null,
     created_at: entry.created_at,
   });
 }
 
 
-/** 查询日志：按级别、信源、时间范围筛选，分页 */
+/** 查询日志：按级别、时间范围筛选，分页 */
 export async function queryLogs(opts: {
   level?: LogEntry["level"];
   category?: LogEntry["category"];
-  source_url?: string;
   limit?: number;
   offset?: number;
   since?: Date;
 }): Promise<{ items: DbLog[]; total: number }> {
   const db = await getDb();
-  const { level, category, source_url, limit = 50, offset = 0, since } = opts;
+  const { level, category, limit = 50, offset = 0, since } = opts;
   const conditions: string[] = [];
   const params: Record<string, unknown> = { limit, offset };
   if (level) {
@@ -354,17 +401,13 @@ export async function queryLogs(opts: {
     conditions.push("category = @category");
     params.category = category;
   }
-  if (source_url) {
-    conditions.push("source_url = @source_url");
-    params.source_url = source_url;
-  }
   if (since) {
     conditions.push("created_at >= @since");
     params.since = since.toISOString();
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = db.prepare(`
-    SELECT id, level, category, message, payload, source_url, created_at
+    SELECT id, level, category, message, payload, created_at
     FROM logs ${where}
     ORDER BY created_at DESC
     LIMIT @limit OFFSET @offset
@@ -374,13 +417,13 @@ export async function queryLogs(opts: {
 }
 
 
-/** 数据库行结构（snake_case，与 FeedItem 区分） */
+/** 数据库行结构（snake_case，与 FeedItem 区分）；author 已解析为数组 */
 export interface DbItem {
   id: string;
   url: string;
   source_url: string;
   title: string | null;
-  author: string | null;
+  author: string[] | null;
   summary: string | null;
   content: string | null;
   pub_date: string | null;
@@ -395,6 +438,5 @@ export interface DbLog {
   category: string;
   message: string;
   payload: string | null;
-  source_url: string | null;
   created_at: string;
 }

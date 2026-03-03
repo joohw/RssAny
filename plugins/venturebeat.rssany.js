@@ -49,9 +49,6 @@ function mapFeedItem(item) {
   const pubDate = toValidDate(item.isoDate ?? item.pubDate);
   const summary = normalizeText(item.contentSnippet ?? "") || stripHtml(item.summary ?? item.content ?? "");
   const author = normalizeText(item.creator ?? item.author ?? "") || undefined;
-  const categories = Array.isArray(item.categories)
-    ? item.categories.map((c) => normalizeText(String(c))).filter(Boolean)
-    : undefined;
 
   return {
     guid: createHash("sha256").update(link).digest("hex"),
@@ -60,7 +57,6 @@ function mapFeedItem(item) {
     pubDate,
     author,
     summary: summary || undefined,
-    categories: categories?.length ? categories : undefined,
   };
 }
 

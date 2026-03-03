@@ -36,6 +36,20 @@ export function getEffectiveItemFields(
     };
 }
 
+/** 将 author 规范为 string[]，兼容 string 输入（插件等） */
+export function normalizeAuthor(author: string | string[] | null | undefined): string[] | undefined {
+    if (author == null) return undefined;
+    if (Array.isArray(author)) return author.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim());
+    const s = String(author).trim();
+    return s ? [s] : undefined;
+}
+
+/** 将 author 转为显示用字符串（逗号分隔） */
+export function authorToDisplay(author: string | string[] | null | undefined): string {
+    const arr = normalizeAuthor(author);
+    return arr?.join(", ") ?? "";
+}
+
 export interface FeedItem {
     /** 全局唯一标识，link 或稳定 hash */
     guid: string;
@@ -45,8 +59,8 @@ export interface FeedItem {
     link: string;
     /** 发布时间 */
     pubDate: Date;
-    /** 作者 */
-    author?: string;
+    /** 作者列表 */
+    author?: string[];
     /** 简要描述（纯文本，适合 RSS description） */
     summary?: string;
     /** 详情正文（输出到 RSS description） */

@@ -1,6 +1,7 @@
 // App 入口：Hono 服务，与 feeder 解耦；可替换为 Express 等
 
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { watch } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
@@ -8,15 +9,16 @@ import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { getRss } from "../feeder/index.js";
+import { getItems, feedItemsToRssXml } from "../feeder/index.js";
 import { onFeedUpdated } from "../core/events/index.js";
 import { getSourcesRaw, saveSourcesFile } from "../scraper/subscription/index.js";
 import type { SourceType } from "../scraper/subscription/types.js";
 import type { RefreshInterval } from "../utils/refreshInterval.js";
 import { VALID_INTERVALS } from "../utils/refreshInterval.js";
 import { initSources as initSites } from "../scraper/sources/index.js";
-import { initScheduler } from "../scraper/scheduler/index.js";
-import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CHANNELS_CONFIG_PATH } from "../config/paths.js";
+import { initScheduler, SOURCES_GROUP } from "../scraper/scheduler/index.js";
+import * as scheduler from "../core/scheduler/index.js";
+import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CHANNELS_CONFIG_PATH, CACHE_DIR } from "../config/paths.js";
 import { getAllChannelConfigs, collectAllSourceRefs } from "../core/channel/index.js";
 import { extractFromLink } from "../scraper/sources/web/extractor/index.js";
 import { ensureAuth, preCheckAuth, getOrCreateBrowser } from "../scraper/sources/web/fetcher/index.js";
@@ -32,7 +34,6 @@ import { createMcpHandler } from "../mcp/server.js";
 
 const PORT = Number(process.env.PORT) || 3751;
 const IS_DEV = process.env.NODE_ENV === "development" || process.argv.includes("--watch");
-const CACHE_DIR = process.env.CACHE_DIR ?? "cache";
 const STATICS_DIR = join(process.cwd(), "statics");
 const PLUGIN_WATCH_EXTS = [".rssany.js", ".rssany.ts"];
 
@@ -67,8 +68,8 @@ function escapeHtml(s: string): string {
 }
 
 
-/** 创建 Hono 应用，feeder 通过参数注入便于测试与换框架 */
-function createApp(getRssFn: typeof getRss = getRss) {
+/** 创建 Hono 应用 */
+function createApp() {
   const app = new Hono();
   // MCP：Streamable HTTP（SSE），GET 建 SSE / POST 发 JSON-RPC
   app.all("/mcp", async (c) => {
@@ -126,11 +127,17 @@ echo "Restart Cursor to take effect."
     const headlessParam = c.req.query("headless");
     const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
     const lng = c.req.query("lng") ?? undefined;
+    const httpId = "http-" + createHash("sha256").update(url).digest("hex").slice(0, 16);
     try {
-      const result = await getRssFn(url, { cacheDir: CACHE_DIR, headless, lng });
+      const { items, fromCache } = await scheduler.enqueueWithResult(
+        SOURCES_GROUP,
+        httpId,
+        () => getItems(url, { cacheDir: CACHE_DIR, headless, lng }),
+        {}
+      );
       return c.json({
-        fromCache: result.fromCache,
-        items: result.items.map((item) => {
+        fromCache,
+        items: items.map((item) => {
           const { title, summary } = lng ? getEffectiveItemFields(item, lng) : { title: item.title, summary: item.summary ?? "" };
           return {
             guid: item.guid,
@@ -156,6 +163,10 @@ echo "Restart Cursor to take effect."
     return c.json(task);
   });
   // API：返回插件列表 JSON
+  app.get("/api/scheduler/stats", (c) => {
+    const stats = scheduler.getGroupStats();
+    return c.json(stats);
+  });
   app.get("/api/plugins", (c) => {
     const plugins = getPluginSites().map((s) => ({
       id: s.id,
@@ -194,6 +205,8 @@ echo "Restart Cursor to take effect."
     const offset = Number(c.req.query("offset") ?? 0);
     const channelFilter = c.req.query("channel") ?? c.req.query("sub") ?? undefined;
     const lng = c.req.query("lng") ?? undefined;
+    const since = c.req.query("since");
+    const until = c.req.query("until");
     const channels = await getAllChannelConfigs();
     const channelsMeta = channels.map((ch) => ({
       id: ch.id,
@@ -214,7 +227,8 @@ echo "Restart Cursor to take effect."
         if (ref) sourceMap.set(ref, { subId: ch.id, subTitle: title });
       }
     }
-    const { items: dbItems, hasMore } = await queryFeedItems(sourceRefs, limit, offset);
+    const dateOpts = (since || until) ? { since: since ?? undefined, until: until ?? undefined } : undefined;
+    const { items: dbItems, hasMore } = await queryFeedItems(sourceRefs, limit, offset, dateOpts);
     const items = dbItems.map((item) => {
       const base = {
         ...item,
@@ -269,13 +283,12 @@ echo "Restart Cursor to take effect."
     const levelParam = c.req.query("level");
     const level = levelParam === "error" || levelParam === "warn" || levelParam === "info" || levelParam === "debug" ? levelParam : undefined;
     const categoryParam = c.req.query("category");
-    const category = categoryParam && /^(feeder|scheduler|enrich|db|auth|plugin|source|llm|app|config|writer)$/.test(categoryParam) ? categoryParam : undefined;
-    const source_url = c.req.query("source_url") ?? undefined;
+    const category = categoryParam && /^(feeder|enrich|db|auth|plugin|source|llm|app|config|writer)$/.test(categoryParam) ? categoryParam : undefined;
     const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
     const offset = Number(c.req.query("offset") ?? 0);
     const sinceParam = c.req.query("since");
     const since = sinceParam ? new Date(sinceParam) : undefined;
-    const result = await queryLogs({ level, category: category as import("../core/logger/types.js").LogCategory | undefined, source_url, limit, offset, since });
+    const result = await queryLogs({ level, category: category as import("../core/logger/types.js").LogCategory | undefined, limit, offset, since });
     return c.json(result);
   });
   app.get("/api/admin/verify", async (c) => {
@@ -293,7 +306,7 @@ echo "Restart Cursor to take effect."
     try {
       const body = await c.req.json<{ sources?: unknown[] }>();
       const list = Array.isArray(body?.sources) ? body.sources : [];
-      const sources: { ref: string; type?: SourceType; label?: string; refresh?: RefreshInterval; proxy?: string }[] = list
+      const sources: { ref: string; type?: SourceType; label?: string; description?: string; refresh?: RefreshInterval; proxy?: string }[] = list
         .filter((s): s is Record<string, unknown> => s != null && typeof s === "object" && typeof (s as { ref?: unknown }).ref === "string")
         .map((s) => {
           const t = (s as { type?: string }).type;
@@ -306,6 +319,7 @@ echo "Restart Cursor to take effect."
             ref: String((s as { ref: string }).ref),
             type,
             label: (s as { label?: string }).label,
+            description: (s as { description?: string }).description,
             refresh,
             proxy: (s as { proxy?: string }).proxy,
           };
@@ -396,9 +410,9 @@ echo "Restart Cursor to take effect."
     const raw = await readStaticHtml("401", "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>401</title></head><body><h1>401 需要登录</h1></body></html>");
     return raw.replace(/\{\{listUrl\}\}/g, escapeHtml(listUrl));
   }
-  app.get("/parse/*", async (c) => {
-    const url = parseUrlFromPath(c.req.path, "/parse");
-    if (!url) return c.text("无效 URL，格式: /parse/https://... 或 /parse/example.com/...", 400);
+  app.get("/admin/parse/*", async (c) => {
+    const url = parseUrlFromPath(c.req.path, "/admin/parse");
+    if (!url) return c.text("无效 URL，格式: /admin/parse/https://... 或 /admin/parse/example.com/...", 400);
     try {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
@@ -418,9 +432,9 @@ echo "Restart Cursor to take effect."
       return c.text(`解析失败: ${msg}`, 500);
     }
   });
-  app.get("/extractor/*", async (c) => {
-    const url = parseUrlFromPath(c.req.path, "/extractor");
-    if (!url) return c.text("无效 URL，格式: /extractor/https://... 或 /extractor/example.com/...", 400);
+  app.get("/admin/extractor/*", async (c) => {
+    const url = parseUrlFromPath(c.req.path, "/admin/extractor");
+    if (!url) return c.text("无效 URL，格式: /admin/extractor/https://... 或 /admin/extractor/example.com/...", 400);
     try {
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
@@ -458,7 +472,14 @@ echo "Restart Cursor to take effect."
       const headlessParam = c.req.query("headless");
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
       const lng = c.req.query("lng") ?? undefined;
-      const { xml } = await getRssFn(url, { cacheDir: CACHE_DIR, headless, writeDb: true, lng });
+      const httpId = "rss-" + createHash("sha256").update(url).digest("hex").slice(0, 16);
+      const { items } = await scheduler.enqueueWithResult(
+        SOURCES_GROUP,
+        httpId,
+        () => getItems(url, { cacheDir: CACHE_DIR, headless, writeDb: true, lng }),
+        {}
+      );
+      const xml = feedItemsToRssXml(items, url, lng);
       return c.body(xml, 200, {
         "Content-Type": "application/rss+xml; charset=utf-8",
       });

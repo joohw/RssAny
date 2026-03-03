@@ -112,7 +112,6 @@ async function fetchItems(sourceId, ctx) {
       link,
       pubDate,
       summary: summary || undefined,
-      categories: category ? [category] : undefined,
     });
   }
 

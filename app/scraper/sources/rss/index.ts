@@ -67,7 +67,8 @@ export const rssSource: Source = {
         item.pubDate != null ? new Date(item.pubDate) :
         item.isoDate != null ? new Date(item.isoDate) :
         new Date();
-      const author = typeof item.creator === "string" ? item.creator : typeof item.author === "string" ? item.author : undefined;
+      const authorRaw = typeof item.creator === "string" ? item.creator : typeof item.author === "string" ? item.author : undefined;
+      const author = authorRaw ? [authorRaw] : undefined;
       const summary = typeof item.summary === "string" ? item.summary : typeof item.contentSnippet === "string" ? item.contentSnippet : undefined;
       const content = typeof item.content === "string" ? item.content : typeof item["content:encoded"] === "string" ? item["content:encoded"] : undefined;
       return {

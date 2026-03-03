@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
 
   interface ApiItem {
     url: string;
+    source_url?: string;
     title: string | null;
     author?: string | null;
     summary?: string | null;
@@ -22,6 +24,7 @@
     _subId: string;
     _subTitle: string;
     _source: string;
+    _sourceRef?: string;
   }
 
   const PAGE_SIZE = 20;
@@ -43,6 +46,20 @@
 
   // 当前激活的频道过滤（从 URL 参数读取）
   $: activeFilter = $page.params.sub === 'all' ? 'all' : ($page.params.sub ?? 'all');
+  $: todayOnly = $page.url.searchParams.get('today') === '1';
+
+  function todayStr(): string {
+    return new Date().toLocaleDateString('en-CA');
+  }
+
+  function channelHref(sub: string, withToday = todayOnly): string {
+    const base = `/channels/${sub}`;
+    return withToday ? `${base}?today=1` : base;
+  }
+
+  function toggleToday() {
+    goto(channelHref(activeFilter, !todayOnly), { replaceState: false });
+  }
 
   function relativeTime(dateStr?: string): string {
     if (!dateStr) return '';
@@ -69,18 +86,27 @@
     return {
       link: item.url,
       title: item.title || undefined,
-      author: item.author ?? undefined,
+      author: Array.isArray(item.author) ? item.author.join(', ') : (item.author ?? undefined),
       summary: item.summary ?? undefined,
       pubDate: item.pub_date || item.fetched_at,
       _subId: item.sub_id,
       _subTitle: item.sub_title,
-      _source: extractSource(item.url),
+      _source: extractSource(item.source_url || item.url),
+      _sourceRef: item.source_url,
     };
   }
 
   function buildUrl(offset: number, filter: string): string {
-    const sub = filter !== 'all' ? `&sub=${encodeURIComponent(filter)}` : '';
-    return `/api/feed?limit=${PAGE_SIZE}&offset=${offset}${sub}`;
+    const params = new URLSearchParams();
+    params.set('limit', String(PAGE_SIZE));
+    params.set('offset', String(offset));
+    if (filter !== 'all') params.set('sub', filter);
+    if (todayOnly) {
+      const d = todayStr();
+      params.set('since', d);
+      params.set('until', d);
+    }
+    return `/api/feed?${params.toString()}`;
   }
 
   /** 初始加载 / 刷新：重置列表，从第一页开始 */
@@ -141,6 +167,20 @@
     listEl?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  function filterBarWheelAction(node: HTMLElement) {
+    const handler = (e: WheelEvent) => {
+      if (node.scrollWidth <= node.clientWidth) return;
+      e.preventDefault();
+      node.scrollLeft += e.deltaY;
+    };
+    node.addEventListener('wheel', handler, { passive: false });
+    return {
+      destroy() {
+        node.removeEventListener('wheel', handler);
+      },
+    };
+  }
+
   function sentinelObserver(node: HTMLElement) {
     const obs = new IntersectionObserver(
       (entries) => {
@@ -165,23 +205,20 @@
     es.onerror = () => { es.close(); esRef = null; setTimeout(connectSSE, 5000); };
   }
 
-  // 路由参数变化时重新加载
-  let prevSub = '';
-  $: {
+  // 路由参数变化时重新加载（频道或今日筛选）
+  let prevUrlKey = '';
+  $: urlKey = `${$page.params.sub ?? 'all'}|${$page.url.searchParams.get('today') ?? ''}`;
+  $: if (urlKey && urlKey !== prevUrlKey) {
+    prevUrlKey = urlKey;
     const sub = $page.params.sub ?? 'all';
-    if (sub !== prevSub && prevSub !== '') {
-      prevSub = sub;
-      allItems = [];
-      hasMore = false;
-      currentOffset = 0;
-      loadFeed(sub === 'all' ? 'all' : sub, false);
-      listEl?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
-    }
+    allItems = [];
+    hasMore = false;
+    currentOffset = 0;
+    loadFeed(sub === 'all' ? 'all' : sub, false);
+    listEl?.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
   }
 
   onMount(() => {
-    prevSub = $page.params.sub ?? 'all';
-    loadFeed(prevSub === 'all' ? 'all' : prevSub, false);
     connectSSE();
   });
 
@@ -191,34 +228,42 @@
 </script>
 
 <svelte:head>
-  <title>信息流 - RssAny</title>
+  <title>RssAny</title>
 </svelte:head>
 
 <div class="feed-wrap">
   <div class="feed-col">
-    <div class="feed-header">
-      <h2>信息流</h2>
-      <div class="feed-header-right">
-        {#if showBadge}
-          <button class="update-badge" on:click={dismissBadge}>{badgeText}</button>
-        {/if}
-      </div>
-    </div>
-
-    <!-- 频道过滤标签（链接式导航） -->
-    <div class="filter-bar">
+    <!-- 频道 + 筛选方式 一行 -->
+    <div class="filter-bar" use:filterBarWheelAction role="region" aria-label="频道筛选">
       <a
         class="filter-chip"
         class:active={activeFilter === 'all'}
-        href="/channels/all"
+        href={channelHref('all')}
       >全部</a>
       {#each channels as ch}
         <a
           class="filter-chip"
           class:active={activeFilter === ch.id}
-          href="/channels/{ch.id}"
+          href={channelHref(ch.id)}
         >{ch.title}</a>
       {/each}
+      <div class="filter-bar-spacer"></div>
+      <button
+        type="button"
+        class="today-switch"
+        class:active={todayOnly}
+        on:click={toggleToday}
+        title="只看今日发布的条目"
+        aria-pressed={todayOnly}
+      >
+        <span class="today-switch-track">
+          <span class="today-switch-thumb"></span>
+        </span>
+        <span class="today-switch-label">只看今日</span>
+      </button>
+      {#if showBadge}
+        <button class="update-badge" on:click={dismissBadge}>{badgeText}</button>
+      {/if}
     </div>
 
     <!-- 条目列表 -->
@@ -246,7 +291,11 @@
               <p class="item-summary">{item.summary}</p>
             {/if}
             <div class="item-meta">
-              <span class="item-source">{item._source}</span>
+              {#if item._sourceRef}
+                <a class="item-source" href="/preview?url={encodeURIComponent(item._sourceRef)}" title="预览该信源">{item._source}</a>
+              {:else}
+                <span class="item-source">{item._source}</span>
+              {/if}
               <span class="item-dot"></span>
               <span>{relativeTime(item.pubDate)}</span>
             </div>
@@ -288,16 +337,47 @@
     border-right: 1px solid #e5e7eb;
   }
 
-  .feed-header {
-    padding: 0.875rem 1.25rem;
-    border-bottom: 1px solid #f0f0f0;
+  .filter-bar-spacer {
+    flex: 1;
+    min-width: 0.5rem;
+  }
+
+  .today-switch {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: #555;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.2rem 0;
+    font-family: inherit;
     flex-shrink: 0;
   }
-  .feed-header h2 { font-size: 0.9375rem; font-weight: 600; }
-  .feed-header-right { display: flex; align-items: center; gap: 0.75rem; }
+  .today-switch:hover .today-switch-label { color: #111; }
+  .today-switch-track {
+    width: 2.25rem;
+    height: 1.25rem;
+    background: #e0e0e0;
+    border-radius: 999px;
+    position: relative;
+    transition: background 0.2s;
+  }
+  .today-switch.active .today-switch-track { background: #0969da; }
+  .today-switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1rem;
+    height: 1rem;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+  }
+  .today-switch.active .today-switch-thumb { transform: translateX(1rem); }
+  .today-switch-label { white-space: nowrap; }
 
   .update-badge {
     font-size: 0.7rem;
@@ -312,6 +392,7 @@
 
   .filter-bar {
     display: flex;
+    align-items: center;
     gap: 0.25rem;
     overflow-x: auto;
     padding: 0.5rem 1.25rem;
@@ -387,6 +468,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  a.item-source:hover {
+    color: #0969da;
+    text-decoration: underline;
   }
   .item-dot {
     width: 2px;

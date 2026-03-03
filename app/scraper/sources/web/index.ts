@@ -8,6 +8,7 @@ import { AuthRequiredError } from "../../auth/index.js";
 import type { Site, SiteContext } from "./site.js";
 import type { Source, SourceContext } from "../types.js";
 import type { FeedItem } from "../../../types/feedItem.js";
+import { normalizeAuthor } from "../../../types/feedItem.js";
 
 
 /** 从 SourceContext + Site 构建注入了工具的 SiteContext */
@@ -56,7 +57,7 @@ export function buildSiteContext(site: Site, ctx: SourceContext): SiteContext {
           : item.pubDate;
       return {
         ...item,
-        author: extracted.author ?? item.author,
+        author: normalizeAuthor(extracted.author ?? item.author),
         title: extracted.title ?? item.title,
         summary: extracted.summary ?? item.summary,
         content: extracted.content ?? item.content,

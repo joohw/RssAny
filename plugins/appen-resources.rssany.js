@@ -137,7 +137,6 @@ async function fetchItems(sourceId, ctx) {
       pubDate: inferredDate ?? fallbackDate,
       author: resourceType.author,
       summary,
-      categories: [resourceType.label],
     });
   }
 

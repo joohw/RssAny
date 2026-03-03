@@ -2,5 +2,9 @@
     "writer": {
         "enabled": true,
         "repoPath": "../AI Signals"
+    },
+    "pipeline": {
+        "enabled": false,
+        "steps": ["tag", "translate"]
     }
 }

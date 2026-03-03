@@ -133,23 +133,6 @@ function createNuxtResolver(table) {
 }
 
 
-function normalizeCategories(record) {
-  const raw = [];
-  if (Array.isArray(record.topic_list)) raw.push(...record.topic_list);
-  raw.push(record.first_class, record.second_class);
-
-  const categories = [];
-  const seen = new Set();
-  for (const value of raw) {
-    const text = normalizeText(value);
-    if (!text || seen.has(text)) continue;
-    seen.add(text);
-    categories.push(text);
-  }
-  return categories.length > 0 ? categories : undefined;
-}
-
-
 function toFeedItem(record) {
   const title = normalizeText(record.dataset_name);
   const link = toAbsoluteDatasetUrl(record.id);
@@ -164,7 +147,6 @@ function toFeedItem(record) {
     pubDate: parseDate(record.date_index_update || record.date_dataset_update),
     author: author || undefined,
     summary: summary || undefined,
-    categories: normalizeCategories(record),
   };
 }
 

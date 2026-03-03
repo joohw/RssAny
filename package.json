@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
+    "@types/node-cron": "^3.0.11",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jsdom": "^21.1.7",
     "@types/mailparser": "^3.4.6",
@@ -67,6 +68,7 @@
     "imapflow": "^1.2.10",
     "jsdom": "^25.0.0",
     "mailparser": "^3.9.3",
+    "node-cron": "^3.0.3",
     "node-html-parser": "^7.0.2",
     "openai": "^4.76.1",
     "puppeteer-core": "^24.36.0",

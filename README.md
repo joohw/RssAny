@@ -179,6 +179,7 @@ export default {
 └── .rssany/          用户数据目录（自动创建，gitignore）
     ├── sources.json
     ├── channels.json
+    ├── cache/        运行时缓存
     ├── plugins/
     └── data/rssany.db
 ```

@@ -1,6 +1,6 @@
 <script lang="ts">
   const LEVELS = ['error', 'warn', 'info', 'debug'] as const;
-  const CATEGORIES = ['feeder', 'scheduler', 'enrich', 'db', 'auth', 'plugin', 'source', 'llm', 'app', 'config', 'signal'] as const;
+  const CATEGORIES = ['feeder', 'enrich', 'db', 'auth', 'plugin', 'source', 'llm', 'app', 'config', 'signal'] as const;
 
   interface LogItem {
     id: number;
@@ -8,7 +8,6 @@
     category: string;
     message: string;
     payload: string | null;
-    source_url: string | null;
     created_at: string;
   }
 
@@ -18,7 +17,6 @@
   let error = '';
   let filterLevel = '';
   let filterCategory = '';
-  let filterSourceUrl = '';
   let offset = 0;
   let expandedId: number | null = null;
 
@@ -32,29 +30,12 @@
     load();
   }
 
-  // 信源 URL 防抖 400ms 后参与请求
-  let filterSourceUrlApplied = filterSourceUrl;
-  let sourceDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  $: {
-    const _ = filterSourceUrl;
-    if (sourceDebounceTimer) clearTimeout(sourceDebounceTimer);
-    sourceDebounceTimer = setTimeout(() => {
-      if (filterSourceUrl !== filterSourceUrlApplied) {
-        filterSourceUrlApplied = filterSourceUrl;
-        offset = 0;
-        load();
-      }
-      sourceDebounceTimer = null;
-    }, 400);
-  }
-
   function buildUrl(): string {
     const params = new URLSearchParams();
     params.set('limit', String(PAGE_SIZE));
     params.set('offset', String(offset));
     if (filterLevel) params.set('level', filterLevel);
     if (filterCategory) params.set('category', filterCategory);
-    if (filterSourceUrlApplied.trim()) params.set('source_url', filterSourceUrlApplied.trim());
     return '/api/logs?' + params.toString();
   }
 
@@ -146,10 +127,6 @@
             {/each}
           </select>
         </label>
-        <label class="filter-source">
-          <span>信源 URL</span>
-          <input type="text" bind:value={filterSourceUrl} placeholder="可选，按 source_url 过滤" />
-        </label>
         <button class="btn btn-secondary" on:click={refresh} disabled={loading} title="刷新">刷新</button>
       </div>
     </div>
@@ -176,7 +153,6 @@
             <th class="th-time">时间</th>
             <th class="th-level">级别</th>
             <th class="th-cat">分类</th>
-            <th class="th-source">信源</th>
             <th class="th-msg">消息</th>
           </tr>
         </thead>
@@ -194,14 +170,11 @@
                 <span class="badge level-{log.level}">{log.level}</span>
               </td>
               <td class="td-cat">{log.category}</td>
-              <td class="td-source" title={log.source_url ?? ''}>
-                {log.source_url ? (log.source_url.length > 40 ? log.source_url.slice(0, 40) + '…' : log.source_url) : '—'}
-              </td>
               <td class="td-msg">{log.message}</td>
             </tr>
             {#if expandedId === log.id && log.payload}
               <tr class="payload-row">
-                <td colspan="5">
+                <td colspan="4">
                   <pre class="payload-content">{tryFormatPayload(log.payload)}</pre>
                 </td>
               </tr>
@@ -281,17 +254,6 @@
     font-family: inherit;
     min-width: 6rem;
   }
-  .filter-source input {
-    padding: 0.35rem 0.6rem;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    font-size: 0.8125rem;
-    font-family: inherit;
-    width: 220px;
-    max-width: 100%;
-  }
-  .filter-source input::placeholder { color: #aaa; }
-
   .btn {
     display: inline-flex;
     align-items: center;
@@ -332,7 +294,6 @@
   .th-time { width: 130px; }
   .th-level { width: 68px; }
   .th-cat { width: 82px; }
-  .th-source { width: 120px; max-width: 120px; }
   .th-msg { min-width: 0; }
 
   .log-row {
@@ -358,14 +319,6 @@
   .badge.level-debug { background: #f5f5f5; color: #666; border: 1px solid #e5e5e5; }
 
   .td-cat { color: #555; }
-  .td-source {
-    color: #888;
-    font-size: 0.75rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 120px;
-    white-space: nowrap;
-  }
   .td-msg { word-break: break-word; max-width: 320px; }
 
   .payload-row td { padding: 0 0.75rem 0.5rem; background: #fafafa; border-bottom: 1px solid #eee; vertical-align: top; }
@@ -408,8 +361,7 @@
   @media (max-width: 720px) {
     .page { max-width: 100%; }
     .logs-col { border: none; }
-    .th-source, .td-source { display: none; }
     .payload-row td { padding-left: 0.5rem; }
-    .payload-row td[colspan="5"] { padding-left: 0.5rem; }
+    .payload-row td[colspan="4"] { padding-left: 0.5rem; }
   }
 </style>

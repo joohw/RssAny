@@ -84,7 +84,8 @@ export const emailSource: RssSource = {
             const guid = makeGuid(envelope.messageId, msg.uid, host);
             const title = parsed.subject ?? envelope.subject ?? "(无主题)";
             const fromAddr = envelope.from?.[0];
-            const author = fromAddr?.name || fromAddr?.address || undefined;
+            const authorRaw = fromAddr?.name || fromAddr?.address || undefined;
+            const author = authorRaw ? [authorRaw] : undefined;
             const pubDate = parsed.date ?? envelope.date ?? new Date();
             const link = `imap://${host}/${encodeURIComponent(folder)}#${msg.uid}`;
             const htmlBody = typeof parsed.html === "string" ? parsed.html : undefined;

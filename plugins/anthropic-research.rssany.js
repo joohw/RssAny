@@ -98,20 +98,6 @@ function extractSummary(anchor, title) {
 }
 
 
-function extractCategories(anchor, title) {
-  const candidates = anchor
-    .querySelectorAll("span")
-    .map((s) => normalizeText(s.textContent))
-    .filter(Boolean)
-    .filter((text) => text !== title)
-    .filter((text) => parsePubDate(text) == null)
-    .filter((text) => text.length <= 40);
-
-  if (candidates.length === 0) return undefined;
-  return Array.from(new Set(candidates));
-}
-
-
 function parseAnchorItem(anchor, finalUrl) {
   const link = toAbsoluteHttpUrl(anchor.getAttribute("href"), finalUrl);
   if (!link) return null;
@@ -125,7 +111,6 @@ function parseAnchorItem(anchor, finalUrl) {
   const dateText = normalizeText(anchor.querySelector("time")?.textContent);
   const pubDate = parsePubDate(dateText) ?? new Date();
   const summary = extractSummary(anchor, title);
-  const categories = extractCategories(anchor, title);
 
   return {
     guid: hashGuid(link),
@@ -134,7 +119,6 @@ function parseAnchorItem(anchor, finalUrl) {
     pubDate,
     author: "Anthropic",
     summary,
-    categories,
   };
 }
 

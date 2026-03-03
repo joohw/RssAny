@@ -6,21 +6,15 @@
   const allLinks: NavLink[] = [
     { href: '/channels/all', label: '信息流' },
     { href: '/sources', label: '信源' },
-    { href: '/channels', label: '频道' },
-    { href: '/logs', label: '日志' },
-    { href: '/mcp', label: 'MCP' },
-    { href: '/parse', label: 'Parse' },
-    { href: '/extractor', label: 'Enrich' },
-    { href: '/plugins', label: '插件' },
+    { href: '/admin', label: 'Admin' },
   ];
 
-  // 信息流：/channels/xxx（含 /channels/all）；频道配置：仅 /channels
   function isActive(link: NavLink, pathname: string): boolean {
     if (link.href === '/channels/all') {
       return pathname.startsWith('/channels/');
     }
-    if (link.href === '/channels') {
-      return pathname === '/channels';
+    if (link.href === '/admin') {
+      return pathname.startsWith('/admin');
     }
     return pathname.startsWith(link.href);
   }

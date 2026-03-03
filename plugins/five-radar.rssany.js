@@ -275,7 +275,6 @@ function mapRowToFeedItem(row, origin) {
     pubDate: parsePublishedAt(row?.published_at),
     author: author || undefined,
     summary: summary || undefined,
-    categories: category ? [category] : undefined,
   };
 }
 

@@ -131,7 +131,6 @@ function mapItems(records, source) {
       link,
       pubDate,
       summary,
-      categories: [source.category],
       sourceId: "opendatalab-news",
     });
   }

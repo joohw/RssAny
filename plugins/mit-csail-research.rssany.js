@@ -147,7 +147,6 @@ function parseCardItem(card, baseUrl, requestedCategory) {
     pubDate: new Date(),
     author,
     summary: summary || undefined,
-    categories: category ? [category] : undefined,
   };
 }
 

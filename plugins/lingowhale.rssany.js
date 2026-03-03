@@ -73,7 +73,7 @@ async function fetchArticles(appId, appSecret, maxPages) {
   const headers = buildHeaders(appId, appSecret);
   const items = [];
   for (let page = 1; page <= maxPages; page++) {
-    const res = await fetch(`${BASE_URL}/articles?page=${page}&page_size=20`, { headers });
+    const res = await fetch(`${BASE_URL}/articles?page=${page}&page_size=100`, { headers });
     if (!res.ok) throw new Error(`[LingowhalePlugin] HTTP ${res.status} 拉取文章列表失败`);
     const json = await res.json();
     if (json.code !== 0) throw new Error(`[LingowhalePlugin] API 错误：${json.message}`);

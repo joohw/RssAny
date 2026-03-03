@@ -1,17 +1,27 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  interface SourceRefCard {
+  interface SubscriptionSource {
+    ref: string;
+    label?: string;
+    description?: string;
+    refresh?: string;
+    proxy?: string;
+  }
+
+  interface SourceCard {
     ref: string;
     displayLabel: string;
+    description?: string;
+    refresh?: string;
     previewHref: string;
   }
 
-  let cards: SourceRefCard[] = [];
+  let cards: SourceCard[] = [];
   let loading = true;
   let loadError = '';
 
-  function displayLabel(url: string): string {
+  function displayLabelFromRef(url: string): string {
     try {
       const u = new URL(url);
       const path = u.pathname === '/' ? '' : u.pathname;
@@ -26,24 +36,20 @@
     loading = true;
     loadError = '';
     try {
-      const res = await fetch('/api/channels/raw');
+      const res = await fetch('/api/sources/raw');
       const raw = await res.text();
-      const data = JSON.parse(raw || '{}') as Record<string, { sourceRefs?: string[] }>;
-      const refSet = new Set<string>();
-      for (const ch of Object.values(data)) {
-        if (!Array.isArray(ch.sourceRefs)) continue;
-        for (const ref of ch.sourceRefs) {
-          const r = ref.trim();
-          if (r) refSet.add(r);
-        }
-      }
-      cards = Array.from(refSet)
-        .sort((a, b) => displayLabel(a).localeCompare(displayLabel(b)))
-        .map((ref) => ({
-          ref,
-          displayLabel: displayLabel(ref),
-          previewHref: '/preview?url=' + encodeURIComponent(ref),
-        }));
+      const data = JSON.parse(raw || '{}') as { sources?: SubscriptionSource[] };
+      const list = Array.isArray(data.sources) ? data.sources : [];
+      cards = list
+        .filter((s) => s?.ref?.trim())
+        .map((s) => ({
+          ref: s.ref.trim(),
+          displayLabel: (s.label && s.label.trim()) || displayLabelFromRef(s.ref),
+          description: s.description?.trim(),
+          refresh: s.refresh,
+          previewHref: '/preview?url=' + encodeURIComponent(s.ref.trim()),
+        }))
+        .sort((a, b) => a.displayLabel.localeCompare(b.displayLabel));
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
       cards = [];
@@ -63,7 +69,7 @@
   <div class="feed-col">
     <div class="feed-header">
       <h2>信源</h2>
-      <p class="sub">频道中所有可用的订阅源（ref），点击进入预览</p>
+      <p class="sub">sources.json 中的完整信源列表，点击进入预览</p>
     </div>
 
   {#if loading}
@@ -71,12 +77,20 @@
   {:else if loadError}
     <div class="state error">{loadError}</div>
   {:else if cards.length === 0}
-    <div class="state">暂无订阅源。请在「频道」中配置 channels.json，为频道添加 sourceRefs。</div>
+    <div class="state">暂无信源。请将 sources.example.json 复制为 .rssany/sources.json 并配置 sources 数组。</div>
   {:else}
     <div class="list">
       {#each cards as card (card.ref)}
         <a class="card" href={card.previewHref} target="_blank" rel="noopener" title={card.ref}>
-          <span class="card-label">{card.displayLabel}</span>
+          <div class="card-main">
+            <span class="card-label">{card.displayLabel}</span>
+            {#if card.description}
+              <span class="card-desc">{card.description}</span>
+            {/if}
+          </div>
+          {#if card.refresh}
+            <span class="card-meta">{card.refresh}</span>
+          {/if}
         </a>
       {/each}
     </div>
@@ -148,7 +162,10 @@
     border-bottom: 1px solid #e5e7eb;
     border-radius: 0;
     padding: 1rem 1.25rem;
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
     text-decoration: none;
     transition: background 0.15s;
     flex-shrink: 0;
@@ -160,18 +177,38 @@
     background: #fafafa;
   }
 
+  .card-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
   .card-label {
     font-size: 0.9rem;
     font-weight: 500;
     color: #111;
     line-height: 1.4;
-    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .card:hover .card-label {
     color: #0969da;
+  }
+  .card-desc {
+    font-size: 0.75rem;
+    color: #888;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-meta {
+    font-size: 0.7rem;
+    color: #888;
+    flex-shrink: 0;
   }
 
   @media (max-width: 600px) {

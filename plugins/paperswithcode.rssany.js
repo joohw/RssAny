@@ -92,7 +92,6 @@ function mapTrendingItem(item) {
     link,
     pubDate: toValidDate(item?.date_published),
     summary: buildSummaryFromTrending(item),
-    categories: joinCategories(item?.tasks),
     sourceId: SITE_ID,
   };
 }
@@ -104,7 +103,6 @@ function mapLatestItem(item) {
   if (!title || !link) return null;
 
   const summary = normalizeText(item?.abstract);
-  const categories = joinCategories(item?.tasks);
   const firstAuthor = Array.isArray(item?.authors) ? normalizeText(item.authors[0]) : "";
 
   return {
@@ -114,7 +112,6 @@ function mapLatestItem(item) {
     pubDate: toValidDate(item?.published),
     author: firstAuthor || undefined,
     summary: summary || undefined,
-    categories,
     sourceId: SITE_ID,
   };
 }

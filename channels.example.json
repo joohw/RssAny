@@ -1,63 +1,67 @@
 {
-  "tech": {
-    "title": "科技媒体",
+  "product": {
+    "title": "产品",
+    "description": "Hacker News、Product Hunt、语鲸等",
     "sourceRefs": [
-      "https://www.theinformation.com/",
-      "https://techcrunch.com/category/artificial-intelligence/",
-      "https://www.technologyreview.com/",
-      "https://venturebeat.com/",
-      "https://slashdot.org/"
+      "https://news.ycombinator.com/newest",
+      "https://www.producthunt.com/feed",
+      "lingowhale://articles?app_id=xxx&app_secret=xxx",
+      "lingowhale://today?app_id=xxx&app_secret=xxx"
     ]
   },
-  "hackernews": {
-    "title": "Hacker News",
+  "project": {
+    "title": "项目",
+    "description": "GitHub 仓库等",
     "sourceRefs": [
-      "https://news.ycombinator.com/newest"
+      "https://github.com/deepseek-ai",
+      "https://github.com/BAAI-WuDao/Paper-Article"
     ]
   },
-  "ai_x": {
-    "title": "X/推特",
+  "person": {
+    "title": "人物",
+    "description": "学者、研究者",
     "sourceRefs": [
-      "https://x.com/elonmusk",
-      "https://x.com/AIatMeta",
+      "https://x.com/yoshuabengio",
+      "https://x.com/ylecun",
+      "https://x.com/geoffreyhinton"
+    ]
+  },
+  "research": {
+    "title": "研究",
+    "description": "研究院、AI 公司、数据标注、自动驾驶、评测基准",
+    "sourceRefs": [
+      "https://www.zhipuai.cn/zh/research",
+      "https://research.google/",
+      "https://deepmind.google/research/",
       "https://x.com/OpenAI",
       "https://x.com/GoogleAI",
-      "https://x.com/Anthropic",
-      "https://x.com/Tesla",
-      "https://x.com/Microsoft",
-      "https://x.com/NVIDIA",
-      "https://x.com/NVIDIARobotics",
-      "https://x.com/BostonDynamics",
-      "https://x.com/xai",
-      "https://x.com/Figure_robot"
+      "https://x.com/scale_ai",
+      "https://www.tesla.com/AI",
+      "https://opendrivelab.com/",
+      "https://opencompass.org.cn/home",
+      "https://lmsys.org/projects/"
     ]
   },
-  "arxiv": {
-    "title": "Arxiv 论文",
+  "paper": {
+    "title": "论文",
+    "description": "Arxiv、Papers with Code、数据集",
     "sourceRefs": [
       "https://rss.arxiv.org/rss/cs.CL",
-      "https://rss.arxiv.org/rss/cs.LG"
+      "https://rss.arxiv.org/rss/cs.LG",
+      "https://paperswithcode.co/",
+      "https://opendatalab.org.cn"
     ]
   },
-  "competitors": {
-    "title": "竞品动态",
+  "news": {
+    "title": "资讯",
+    "description": "科技媒体、技术博客、AI 资讯",
     "sourceRefs": [
-      "https://x.com/turingcom",
-      "https://x.com/scale_ai",
-      "https://x.com/HelloSurgeAI",
-      "https://x.com/labelbox",
-      "https://x.com/V7Labs",
-      "https://supervisely.com/blog/",
-      "https://x.com/crowdgenbyappen",
-      "https://x.com/SegmentsAI",
-      "https://www.kognic.com/articles"
-    ]
-  },
-  "lingowhale": {
-    "title": "语鲸",
-    "sourceRefs": [
-      "lingowhale://articles?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7",
-      "lingowhale://today?app_id=app_91458c33f7ecc4f666edd52fb8333806&app_secret=secret_81f1b8b073298fd7b49f737521be8dbfef93ae86b173b1a34f5e9e810ef927f7"
+      "https://techcrunch.com/category/artificial-intelligence/",
+      "https://venturebeat.com/",
+      "https://huggingface.co/blog",
+      "https://tech.meituan.com/",
+      "https://www.5radar.com",
+      "https://trendshift.io/"
     ]
   }
 }

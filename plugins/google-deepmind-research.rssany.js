@@ -88,17 +88,6 @@ function isResearchLink(link) {
 }
 
 
-function categoryFromLink(link) {
-  try {
-    const url = new URL(link);
-    if (/^\/research\/publications\//i.test(url.pathname)) return ["Publications"];
-  } catch {
-    // ignore
-  }
-  return ["News"];
-}
-
-
 function extractTitle(container) {
   const heading =
     container.querySelector("h1") ??
@@ -145,7 +134,6 @@ function parseItemsFromArticles(root, baseUrl) {
       "";
     const pubDate = parsePubDate(dateRaw) ?? new Date();
     const summary = extractSummary(article, title);
-    const categories = categoryFromLink(link);
 
     items.push({
       guid: hashGuid(link),
@@ -154,7 +142,6 @@ function parseItemsFromArticles(root, baseUrl) {
       pubDate,
       author: "Google DeepMind",
       summary,
-      categories,
       sourceId: "google-deepmind-research",
     });
   }
@@ -196,7 +183,6 @@ function parseItemsFromAnchors(root, baseUrl) {
       "";
     const pubDate = parsePubDate(dateRaw) ?? new Date();
     const summary = extractSummary(container, title);
-    const categories = categoryFromLink(link);
 
     seen.add(link);
     items.push({
@@ -206,7 +192,6 @@ function parseItemsFromAnchors(root, baseUrl) {
       pubDate,
       author: "Google DeepMind",
       summary,
-      categories,
       sourceId: "google-deepmind-research",
     });
   }

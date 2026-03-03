@@ -40,13 +40,8 @@ export interface FeederConfig {
 }
 
 
-export interface FeederResult {
-  /** RSS 2.0 XML 字符串 */
-  xml: string;
-  /** 是否来自缓存 */
-  fromCache: boolean;
-  /** 当前已抓取到的条目列表（含后台补全状态） */
+/** getItems 返回类型 */
+export interface GetItemsResult {
   items: FeedItem[];
-  /** 后台提取任务 ID；fromCache=true 或信源无 enrichItem 时为 undefined */
-  enrichTaskId?: string;
+  fromCache: boolean;
 }

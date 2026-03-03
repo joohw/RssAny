@@ -74,22 +74,6 @@ function extractAuthor(card) {
 }
 
 
-function extractCategories(card) {
-  if (!card) return undefined;
-  const categories = [];
-  const seen = new Set();
-  for (const anchor of card.querySelectorAll('a[href*="/tags/"]')) {
-    const href = anchor.getAttribute("href") || "";
-    if (!/\/tags\/.+\/blog(?:_|$)/.test(href)) continue;
-    const label = normalizeText(anchor.textContent);
-    if (!label || seen.has(label)) continue;
-    seen.add(label);
-    categories.push(label);
-  }
-  return categories.length > 0 ? categories : undefined;
-}
-
-
 function extractSummary(card, title, linkPath, pageUrl) {
   if (!card) return undefined;
   let best = "";
@@ -122,7 +106,6 @@ function mapCardToFeedItem(card, pageUrl) {
   const pubDate = extractDate(card) ?? new Date();
   const summary = extractSummary(card, title, linkPath, pageUrl);
   const author = extractAuthor(card);
-  const categories = extractCategories(card);
 
   return {
     guid: hashGuid(link),
@@ -131,7 +114,6 @@ function mapCardToFeedItem(card, pageUrl) {
     pubDate,
     summary: summary || undefined,
     author,
-    categories,
   };
 }
 
