@@ -16,7 +16,9 @@ export type LogCategory =
   | "app"      // HTTP 服务、启动、隧道
   | "config"   // 配置与迁移
   | "writer"   // 写文件模块（条目落盘到配置目录）
-  | "pipeline"; // 入库前处理链（翻译、打标签等）
+  | "pipeline" // 入库前处理链（翻译、打标签等）
+  | "daily"    // 每日日报生成
+  | "topics";  // 话题追踪报告生成
 
 /** payload 常用字段约定（非强制）：便于查询与统计 */
 export interface LogPayloadConvention {

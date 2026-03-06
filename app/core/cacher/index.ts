@@ -7,7 +7,6 @@ import type { CacheKeyStrategy, StructuredHtmlResult } from "../../scraper/sourc
 
 
 const FETCHED_SUBDIR = "fetched";
-const LOGS_SUBDIR = "logs";
 const DOMAINS_SUBDIR = "domains";
 
 
@@ -98,7 +97,7 @@ export interface WriteCacheOptions {
 }
 
 
-// 从缓存目录读取指定 URL 的缓存结果，不存在、损坏或已过期则返回 null（先读 logs/{key}.json，兼容旧版 fetched/{key}.json）
+// 从缓存目录读取指定 URL 的缓存结果，不存在、损坏或已过期则返回 null（元数据与 body 均在 fetched/）
 export async function readCached(
   cacheDir: string,
   url: string,
@@ -107,16 +106,11 @@ export async function readCached(
   const { strategy = "forever", maxAgeMs } = options;
   const key = cacheKey(url, strategy);
   const fetchedDir = join(cacheDir, FETCHED_SUBDIR);
-  const logsDir = join(cacheDir, LOGS_SUBDIR);
   let raw: string;
   try {
-    raw = await readFile(join(logsDir, `${key}.json`), "utf-8");
+    raw = await readFile(join(fetchedDir, `${key}.json`), "utf-8");
   } catch {
-    try {
-      raw = await readFile(join(fetchedDir, `${key}.json`), "utf-8");
-    } catch {
-      return null;
-    }
+    return null;
   }
   try {
     const meta = JSON.parse(raw) as CacheMeta;
@@ -140,7 +134,7 @@ export async function readCached(
 }
 
 
-// 将结果写入缓存目录：HTML 写 fetched/{key}.html，元数据写 logs/{key}.json（含 cachedAt）
+// 将结果写入缓存目录：HTML 写 fetched/{key}.html，元数据写 fetched/{key}.json（含 cachedAt）
 export async function writeCached(
   cacheDir: string,
   url: string,
@@ -149,9 +143,7 @@ export async function writeCached(
 ): Promise<void> {
   const { strategy = "forever" } = options;
   const fetchedDir = join(cacheDir, FETCHED_SUBDIR);
-  const logsDir = join(cacheDir, LOGS_SUBDIR);
   await mkdir(fetchedDir, { recursive: true });
-  await mkdir(logsDir, { recursive: true });
   const key = cacheKey(url, strategy);
   const htmlFileName = `${key}.html`;
   await writeFile(join(fetchedDir, htmlFileName), result.body, "utf-8");
@@ -163,7 +155,7 @@ export async function writeCached(
     bodyFile: htmlFileName,
     cachedAt: new Date().toISOString(),
   };
-  await writeFile(join(logsDir, `${key}.json`), JSON.stringify(meta, null, 2), "utf-8");
+  await writeFile(join(fetchedDir, `${key}.json`), JSON.stringify(meta, null, 2), "utf-8");
 }
 
 

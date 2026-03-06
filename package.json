@@ -70,6 +70,7 @@
     "imapflow": "^1.2.10",
     "jsdom": "^25.0.0",
     "mailparser": "^3.9.3",
+    "marked": "^17.0.3",
     "node-cron": "^3.0.3",
     "node-html-parser": "^7.0.2",
     "openai": "^4.76.1",

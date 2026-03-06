@@ -65,8 +65,10 @@ export interface FeedItem {
     summary?: string;
     /** 详情正文（输出到 RSS description） */
     content?: string;
-    /** 分类 / 标签 */
+    /** RSS 来源分类（直接来自 feed 的 <category> 字段） */
     categories?: string[];
+    /** 系统 / pipeline 生成的标签（从用户管理的标签库中匹配） */
+    tags?: string[];
     /** 信源标识（列表页 URL 或 imap 等），入库与按 channel 筛选用；设后则 upsertItems / writeItems 等无需再传 ref */
     sourceRef?: string;
     /**

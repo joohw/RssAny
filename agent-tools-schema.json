@@ -1,0 +1,396 @@
+{
+  "description": "Cursor Agent 可用工具及其 Schema 定义",
+  "generatedAt": "2025-03-06",
+  "disclaimer": "基于 Agent 系统提示中的工具定义整理，可能与 Cursor 内部实现存在细微差异",
+  "tools": [
+    {
+      "name": "codebase_search",
+      "description": "在代码库中搜索以回答代码相关问题。支持自然语言查询，可指定目标目录。",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "description": "自然语言描述的搜索查询"
+        },
+        "target_directories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "required": false,
+          "description": "要搜索的目录路径列表，不指定则搜索整个工作区"
+        }
+      }
+    },
+    {
+      "name": "run_terminal_cmd",
+      "description": "在 shell 中执行命令。支持后台运行、超时、权限请求等。",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "required": true,
+          "description": "要执行的命令"
+        },
+        "working_directory": {
+          "type": "string",
+          "required": false,
+          "description": "工作目录的绝对路径"
+        },
+        "timeout": {
+          "type": "number",
+          "required": false,
+          "description": "超时时间（毫秒），默认 30000"
+        },
+        "is_background": {
+          "type": "boolean",
+          "required": false,
+          "description": "是否在后台运行"
+        },
+        "required_permissions": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["git_write", "full_network", "network", "all"] },
+          "required": false,
+          "description": "所需权限：git_write、full_network、network、all"
+        }
+      }
+    },
+    {
+      "name": "grep",
+      "description": "使用 ripgrep 在代码中搜索。支持正则、glob、输出模式等。",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "required": true,
+          "description": "正则表达式模式"
+        },
+        "path": {
+          "type": "string",
+          "required": false,
+          "description": "搜索路径"
+        },
+        "glob": {
+          "type": "string",
+          "required": false,
+          "description": "文件 glob 过滤（如 *.js）"
+        },
+        "output_mode": {
+          "type": "string",
+          "enum": ["content", "files_with_matches", "count"],
+          "required": false,
+          "description": "输出模式"
+        },
+        "-B": { "type": "number", "required": false, "description": "匹配行前的上下文行数" },
+        "-A": { "type": "number", "required": false, "description": "匹配行后的上下文行数" },
+        "-C": { "type": "number", "required": false, "description": "匹配行前后的上下文行数" },
+        "-i": { "type": "boolean", "required": false, "description": "忽略大小写" },
+        "type": { "type": "string", "required": false, "description": "文件类型过滤" },
+        "head_limit": { "type": "number", "required": false, "description": "输出行数限制" },
+        "offset": { "type": "number", "required": false, "description": "跳过前 N 个匹配" },
+        "multiline": { "type": "boolean", "required": false, "description": "多行匹配模式" }
+      }
+    },
+    {
+      "name": "read_file",
+      "description": "读取文件内容。支持偏移和行数限制，可读取图片。",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "required": true,
+          "description": "文件绝对路径"
+        },
+        "offset": {
+          "type": "integer",
+          "required": false,
+          "description": "起始行号"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "description": "读取行数"
+        }
+      }
+    },
+    {
+      "name": "read_lints",
+      "description": "读取工作区的 linter 错误。",
+      "parameters": {
+        "paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "required": false,
+          "description": "要检查的文件或目录路径，不指定则检查整个工作区"
+        }
+      }
+    },
+    {
+      "name": "edit_notebook",
+      "description": "编辑 Jupyter notebook 单元格。支持编辑现有单元格或创建新单元格。",
+      "parameters": {
+        "target_notebook": {
+          "type": "string",
+          "required": true,
+          "description": "notebook 文件路径"
+        },
+        "cell_idx": {
+          "type": "number",
+          "required": true,
+          "description": "单元格索引（0-based）"
+        },
+        "is_new_cell": {
+          "type": "boolean",
+          "required": true,
+          "description": "是否创建新单元格"
+        },
+        "cell_language": {
+          "type": "string",
+          "required": true,
+          "enum": ["python", "markdown", "javascript", "typescript", "r", "sql", "shell", "raw", "other"],
+          "description": "单元格语言"
+        },
+        "old_string": {
+          "type": "string",
+          "required": true,
+          "description": "要替换的文本（新建时为空）"
+        },
+        "new_string": {
+          "type": "string",
+          "required": true,
+          "description": "替换后的文本或新单元格内容"
+        }
+      }
+    },
+    {
+      "name": "todo_write",
+      "description": "创建和管理任务列表，用于复杂多步骤任务。",
+      "parameters": {
+        "todos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "description": "唯一标识" },
+              "content": { "type": "string", "description": "任务描述" },
+              "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"] }
+            },
+            "required": ["id", "content", "status"]
+          },
+          "required": true,
+          "description": "任务数组"
+        },
+        "merge": {
+          "type": "boolean",
+          "required": true,
+          "description": "是否与现有任务合并"
+        }
+      }
+    },
+    {
+      "name": "search_replace",
+      "description": "在文件中执行精确字符串查找替换。",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "required": true,
+          "description": "文件路径"
+        },
+        "old_string": {
+          "type": "string",
+          "required": true,
+          "description": "要替换的文本"
+        },
+        "new_string": {
+          "type": "string",
+          "required": true,
+          "description": "替换后的文本"
+        },
+        "replace_all": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "是否替换所有匹配"
+        }
+      }
+    },
+    {
+      "name": "write",
+      "description": "写入或覆盖文件。",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "required": true,
+          "description": "文件路径"
+        },
+        "contents": {
+          "type": "string",
+          "required": true,
+          "description": "文件内容"
+        }
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "删除指定路径的文件。",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "required": true,
+          "description": "要删除的文件路径"
+        }
+      }
+    },
+    {
+      "name": "web_search",
+      "description": "在互联网上搜索实时信息。",
+      "parameters": {
+        "search_term": {
+          "type": "string",
+          "required": true,
+          "description": "搜索关键词"
+        },
+        "explanation": {
+          "type": "string",
+          "required": true,
+          "description": "使用此工具的原因说明"
+        }
+      }
+    },
+    {
+      "name": "mcp_web_fetch",
+      "description": "从指定 URL 获取内容并转为可读的 Markdown。",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "required": true,
+          "description": "完整的有效 URL"
+        }
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "根据文本描述生成图片。仅在用户明确要求时使用。",
+      "parameters": {
+        "description": {
+          "type": "string",
+          "required": true,
+          "description": "图片的详细描述"
+        },
+        "filename": {
+          "type": "string",
+          "required": false,
+          "description": "保存的文件名"
+        },
+        "reference_image_paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "required": false,
+          "description": "参考图片路径"
+        }
+      }
+    },
+    {
+      "name": "glob_file_search",
+      "description": "按 glob 模式搜索文件。",
+      "parameters": {
+        "glob_pattern": {
+          "type": "string",
+          "required": true,
+          "description": "glob 模式（如 *.js、**/test/**/*.ts）"
+        },
+        "target_directory": {
+          "type": "string",
+          "required": false,
+          "description": "搜索目录，默认工作区根目录"
+        }
+      }
+    },
+    {
+      "name": "mcp_task",
+      "description": "启动子 agent 处理复杂多步骤任务。支持 explore、generalPurpose、shell 等类型。",
+      "parameters": {
+        "description": {
+          "type": "string",
+          "required": true,
+          "description": "任务简短描述（3-5 词）"
+        },
+        "prompt": {
+          "type": "string",
+          "required": true,
+          "description": "详细任务描述"
+        },
+        "model": {
+          "type": "string",
+          "enum": ["fast"],
+          "required": false,
+          "description": "子 agent 使用的模型"
+        },
+        "resume": {
+          "type": "string",
+          "required": false,
+          "description": "要恢复的 agent ID"
+        },
+        "subagent_type": {
+          "type": "string",
+          "enum": ["generalPurpose", "explore", "shell"],
+          "required": true,
+          "description": "子 agent 类型"
+        },
+        "attachments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "required": false,
+          "description": "附加文件路径（如视频）"
+        },
+        "run_in_background": {
+          "type": "boolean",
+          "required": false,
+          "description": "是否后台运行"
+        },
+        "readonly": {
+          "type": "boolean",
+          "required": false,
+          "description": "是否只读模式"
+        }
+      }
+    },
+    {
+      "name": "call_mcp_tool",
+      "description": "通过服务器标识和工具名调用 MCP 工具。调用前需先查看工具的 schema。",
+      "parameters": {
+        "server": {
+          "type": "string",
+          "required": true,
+          "description": "MCP 服务器标识"
+        },
+        "toolName": {
+          "type": "string",
+          "required": true,
+          "description": "要调用的工具名"
+        },
+        "arguments": {
+          "type": "object",
+          "required": true,
+          "description": "传递给工具的 JSON 参数"
+        }
+      }
+    },
+    {
+      "name": "fetch_mcp_resource",
+      "description": "从 MCP 服务器读取指定 URI 的资源。",
+      "parameters": {
+        "server": {
+          "type": "string",
+          "required": true,
+          "description": "MCP 服务器标识"
+        },
+        "uri": {
+          "type": "string",
+          "required": true,
+          "description": "资源 URI"
+        },
+        "downloadPath": {
+          "type": "string",
+          "required": false,
+          "description": "保存到工作区的相对路径，设置则下载到磁盘"
+        }
+      }
+    }
+  ]
+}

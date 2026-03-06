@@ -3,6 +3,8 @@
 import { createHash } from "node:crypto";
 import type { Hono } from "hono";
 import { getItems, feedItemsToRssXml } from "../../feeder/index.js";
+import { queryItems } from "../../db/index.js";
+import { getAllChannelConfigs, collectAllSourceRefs } from "../../core/channel/index.js";
 import { SOURCES_GROUP } from "../../scraper/scheduler/index.js";
 import * as scheduler from "../../scheduler/index.js";
 import { CACHE_DIR } from "../../config/paths.js";
@@ -15,6 +17,90 @@ export function registerRssRoutes(app: Hono): void {
     return raw.replace(/\{\{listUrl\}\}/g, escapeHtml(listUrl));
   }
 
+  /** 查询式 RSS：按 channel、search、sourceUrl、author、tags 过滤，返回匹配条目的 XML */
+  app.get("/rss", async (c) => {
+    const channelId = c.req.query("channel") ?? undefined;
+    const search = c.req.query("search") ?? c.req.query("q") ?? undefined;
+    const sourceUrl = c.req.query("source") ?? c.req.query("sourceUrl") ?? undefined;
+    const author = c.req.query("author") ?? undefined;
+    const tagsParam = c.req.query("tags") ?? undefined;
+    const tags = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+    const lng = c.req.query("lng") ?? undefined;
+    const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+    const offset = Number(c.req.query("offset") ?? 0);
+    const title = c.req.query("title") ?? undefined;
+    const daysParam = c.req.query("days");
+    const sinceParam = c.req.query("since") ?? undefined;
+    const untilParam = c.req.query("until") ?? undefined;
+    let since: Date | undefined;
+    let until: Date | undefined;
+    if (daysParam) {
+      const n = Math.max(1, Math.min(365, Number(daysParam) || 1));
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(todayStart);
+      todayEnd.setDate(todayEnd.getDate() + 1);
+      since = new Date(todayStart);
+      since.setDate(since.getDate() - (n - 1));
+      until = todayEnd;
+    } else {
+      since = sinceParam ? new Date(sinceParam) : undefined;
+      if (untilParam) {
+        if (untilParam.length === 10) {
+          const d = new Date(untilParam + "T12:00:00Z");
+          d.setUTCDate(d.getUTCDate() + 1);
+          until = d;
+        } else {
+          until = new Date(untilParam);
+        }
+      }
+    }
+
+    let sourceUrls: string[] | undefined;
+    if (channelId) {
+      const channels = await getAllChannelConfigs();
+      sourceUrls =
+        channelId === "all" || !channelId
+          ? collectAllSourceRefs(channels)
+          : (channels.find((x) => x.id === channelId)?.sourceRefs ?? []);
+    }
+
+    const result = await queryItems({
+      sourceUrl: sourceUrls ? undefined : sourceUrl,
+      sourceUrls,
+      author,
+      q: search,
+      tags,
+      since,
+      until,
+      limit,
+      offset,
+    });
+    const feedItems = result.items.map((dbItem) => ({
+      guid: dbItem.id,
+      title: dbItem.title ?? "",
+      link: dbItem.url,
+      pubDate: dbItem.pub_date ? new Date(dbItem.pub_date) : new Date(),
+      author: dbItem.author ?? undefined,
+      summary: dbItem.summary ?? undefined,
+      content: dbItem.content ?? undefined,
+      tags: dbItem.tags ?? undefined,
+      sourceRef: dbItem.source_url,
+      translations: dbItem.translations ?? undefined,
+    }));
+
+    const rssUrl = new URL(c.req.url);
+    const channelTitle = title ?? "RSS 订阅";
+    const xml = feedItemsToRssXml(feedItems, rssUrl.href, lng, {
+      channelTitle,
+      channelDesc: `来自 ${rssUrl.href} 的订阅`,
+    });
+    return c.body(xml, 200, {
+      "Content-Type": "application/rss+xml; charset=utf-8",
+    });
+  });
+
+  /** 按 URL 抓取式 RSS：/rss/https://... 从信源实时抓取 */
   app.get("/rss/*", async (c) => {
     const url = parseUrlFromPath(c.req.path, "/rss");
     if (!url) return c.text("无效 URL，格式: /rss/https://... 或 /rss/www.xiaohongshu.com/...", 400);

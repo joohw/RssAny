@@ -78,18 +78,27 @@ const toolDefs: ToolDef[] = [
     name: "get_channel_feeds",
     label: "Get channel feeds",
     description:
-      "Get feed items for a channel or all channels, without full content. Optional channel_id, limit, offset.",
+      "Get feed items for a channel or all channels, without full content. Supports channel_id, since/until date range, tags filter, author fuzzy match. Use get_feed_detail with item id for full content.",
     params: {
       channel_id: { type: "string", optional: true, description: "Channel id; omit for all channels" },
       limit: { type: "number", optional: true, default: 50, minimum: 1, maximum: 200 },
       offset: { type: "number", optional: true, default: 0, minimum: 0 },
+      since: { type: "string", optional: true, description: "Only items after this date (YYYY-MM-DD or ISO 8601)" },
+      until: { type: "string", optional: true, description: "Only items before this date (YYYY-MM-DD or ISO 8601)" },
+      tags: { type: "string", optional: true, description: "Comma-separated tags; items matching any tag are returned" },
+      author: { type: "string", optional: true, description: "Author fuzzy match (min 2 chars)" },
     },
     run: async (args) => {
-      const a = args as { channel_id?: string; limit?: number; offset?: number };
+      const a = args as { channel_id?: string; limit?: number; offset?: number; since?: string; until?: string; tags?: string; author?: string };
+      const tagsArr = typeof a.tags === "string" ? a.tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
       const { items, hasMore } = await fn.getChannelFeeds({
         channel_id: a.channel_id,
         limit: a.limit,
         offset: a.offset,
+        since: a.since,
+        until: a.until,
+        tags: tagsArr,
+        author: a.author,
       });
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ items, hasMore }, null, 2) }],
@@ -126,26 +135,94 @@ const toolDefs: ToolDef[] = [
     name: "search_feeds",
     label: "Search feeds",
     description:
-      "Search feed items by full-text query (matches title, summary, content). Optional: source_url, author (fuzzy), limit, offset. Use get_feed_detail with item id for full content.",
+      "Search or filter feed items. Full-text query q matches title/summary/content (FTS5). Optional: channel_id (scope to channel), source_url, author (fuzzy), tags (comma-separated), since/until date range. Omit q to filter by other params only. Use get_feed_detail with item id for full content.",
     params: {
-      q: { type: "string", description: "Search query (FTS5 full-text match)", minLength: 1 },
-      source_url: { type: "string", optional: true, description: "Filter by source URL; omit to search all" },
-      author: { type: "string", optional: true, description: "Filter by author (fuzzy match, min 2 chars)" },
+      q: { type: "string", optional: true, description: "Full-text search query; omit to filter only" },
+      channel_id: { type: "string", optional: true, description: "Limit to feeds from this channel" },
+      source_url: { type: "string", optional: true, description: "Filter by source URL" },
+      author: { type: "string", optional: true, description: "Author fuzzy match (min 2 chars)" },
+      tags: { type: "string", optional: true, description: "Comma-separated tags; match any" },
+      since: { type: "string", optional: true, description: "Only items after date (YYYY-MM-DD or ISO 8601)" },
+      until: { type: "string", optional: true, description: "Only items before date (YYYY-MM-DD or ISO 8601)" },
       limit: { type: "number", optional: true, default: 20, minimum: 1, maximum: 100 },
       offset: { type: "number", optional: true, default: 0, minimum: 0 },
     },
     run: async (args) => {
-      const a = args as { q: string; source_url?: string; author?: string; limit?: number; offset?: number };
+      const a = args as {
+        q?: string;
+        channel_id?: string;
+        source_url?: string;
+        author?: string;
+        tags?: string;
+        since?: string;
+        until?: string;
+        limit?: number;
+        offset?: number;
+      };
+      const tagsArr = typeof a.tags === "string" ? a.tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
       const { items, total } = await fn.searchFeeds({
         q: a.q,
+        channel_id: a.channel_id,
         source_url: a.source_url,
         author: a.author,
+        tags: tagsArr,
+        since: a.since,
+        until: a.until,
         limit: a.limit,
         offset: a.offset,
       });
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ items, total }, null, 2) }],
         details: { items, total },
+      };
+    },
+  },
+  {
+    name: "web_search",
+    label: "Web search",
+    description:
+      "Search the web for real-time information via Brave Search. Use when user needs latest news, facts not in RSS feeds, or external sources. Returns title, url, description per result.",
+    params: {
+      query: { type: "string", description: "Search query" },
+      count: { type: "number", optional: true, default: 8, minimum: 1, maximum: 20, description: "Max results to return" },
+    },
+    run: async (args) => {
+      const a = args as { query: string; count?: number };
+      const { results, error } = await fn.webSearch({ query: a.query, count: a.count });
+      if (error) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error, results: [] }, null, 2) }],
+          details: { error, results: [] },
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ results }, null, 2) }],
+        details: { results },
+      };
+    },
+  },
+  {
+    name: "web_fetch",
+    label: "Web fetch",
+    description:
+      "Fetch and extract main content from a URL. Uses Readability to get title, author, summary, content. Best for static pages (blogs, docs, news). JS-rendered SPAs may return incomplete content.",
+    params: {
+      url: { type: "string", description: "URL to fetch (with or without https://)" },
+    },
+    run: async (args) => {
+      const a = args as { url: string };
+      const result = await fn.webFetch({ url: a.url });
+      if (result.error) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          details: result,
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        details: result,
       };
     },
   },

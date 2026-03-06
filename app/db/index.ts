@@ -1,14 +1,12 @@
 // 数据库模块：管理 SQLite 连接、schema 初始化与 FeedItem CRUD、日志写入
 
 import Database from "better-sqlite3";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
 import { normalizeAuthor } from "../types/feedItem.js";
 import type { LogEntry } from "../core/logger/types.js";
-import { DATA_DIR } from "../config/paths.js";
-import { emitFeedUpdated } from "../core/events/index.js";
-
+import { DATA_DIR, TAGS_CONFIG_PATH } from "../config/paths.js";
 
 let _db: Database.Database | null = null;
 const DATE_ONLY_TITLE_RE =
@@ -46,10 +44,23 @@ export function parseAuthorFromDb(raw: string | null | undefined): string[] | un
   }
 }
 
-/** 将 raw DB row 转为 DbItem（解析 author 等） */
+/** 将 raw DB row 转为 DbItem（解析 author / tags / translations 等 JSON 列） */
 function toDbItem(row: Record<string, unknown>): DbItem {
   const author = parseAuthorFromDb(row.author as string) ?? null;
-  return { ...row, author } as DbItem;
+  const parseJsonArr = (v: unknown): string[] | null => {
+    try { return v ? (JSON.parse(v as string) as string[]) : null; } catch { return null; }
+  };
+  const tags = parseJsonArr(row.tags);
+  let translations: Record<string, { title?: string; summary?: string; content?: string }> | null = null;
+  try {
+    if (row.translations && typeof row.translations === "string") {
+      const p = JSON.parse(row.translations) as unknown;
+      if (p && typeof p === "object") translations = p as Record<string, { title?: string; summary?: string; content?: string }>;
+    }
+  } catch {
+    /* ignore */
+  }
+  return { ...row, author, tags, translations } as DbItem;
 }
 
 function mapRowsToDbItems(rows: Record<string, unknown>[]): DbItem[] {
@@ -65,11 +76,133 @@ export async function getDb(): Promise<Database.Database> {
   _db.pragma("journal_mode = WAL");
   _db.pragma("synchronous = NORMAL");
   initSchema(_db);
+  migrateSchema(_db);
   return _db;
 }
 
 
-/** 建表：items 主表 + FTS5 全文检索虚拟表 */
+/** 增量迁移：为已存在的旧表补充新列 */
+function migrateSchema(db: Database.Database): void {
+  const cols = (db.prepare("PRAGMA table_info(items)").all() as { name: string }[]).map((r) => r.name);
+  if (!cols.includes("tags")) {
+    db.exec("ALTER TABLE items ADD COLUMN tags TEXT");
+  }
+  if (cols.includes("tag_suggestions")) {
+    try {
+      db.exec("ALTER TABLE items DROP COLUMN tag_suggestions");
+    } catch {
+      // SQLite < 3.35 不支持 DROP COLUMN，忽略
+    }
+  }
+  if (!cols.includes("translations")) {
+    db.exec("ALTER TABLE items ADD COLUMN translations TEXT");
+  }
+  // FTS 升级：增加 zh-CN 译文列，支持中英文全文检索
+  const versionRow = db.prepare("SELECT version FROM _schema_version LIMIT 1").get() as { version: number } | undefined;
+  const version = versionRow?.version ?? 1;
+  if (version < 2) {
+    db.exec("DROP TRIGGER IF EXISTS items_fts_after_insert");
+    db.exec("DROP TRIGGER IF EXISTS items_fts_after_update");
+    db.exec("DROP TRIGGER IF EXISTS items_fts_after_delete");
+    db.exec("DROP TABLE IF EXISTS items_fts");
+    db.exec(`
+      CREATE VIRTUAL TABLE items_fts USING fts5(
+        title, summary, content, title_zh, summary_zh, content_zh,
+        content='items',
+        content_rowid='rowid'
+      );
+      CREATE TRIGGER items_fts_after_insert AFTER INSERT ON items
+      BEGIN
+        INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+        VALUES (
+          NEW.rowid, NEW.title, NEW.summary, NEW.content,
+          json_extract(NEW.translations, '$."zh-CN".title'),
+          json_extract(NEW.translations, '$."zh-CN".summary'),
+          json_extract(NEW.translations, '$."zh-CN".content')
+        );
+      END;
+      CREATE TRIGGER items_fts_after_update AFTER UPDATE ON items
+      BEGIN
+        DELETE FROM items_fts WHERE rowid = OLD.rowid;
+        INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+        VALUES (
+          NEW.rowid, NEW.title, NEW.summary, NEW.content,
+          json_extract(NEW.translations, '$."zh-CN".title'),
+          json_extract(NEW.translations, '$."zh-CN".summary'),
+          json_extract(NEW.translations, '$."zh-CN".content')
+        );
+      END;
+      CREATE TRIGGER items_fts_after_delete AFTER DELETE ON items
+      BEGIN
+        DELETE FROM items_fts WHERE rowid = OLD.rowid;
+      END;
+    `);
+    db.exec(`
+      INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+      SELECT rowid, title, summary, content,
+        json_extract(translations, '$."zh-CN".title'),
+        json_extract(translations, '$."zh-CN".summary'),
+        json_extract(translations, '$."zh-CN".content')
+      FROM items
+    `);
+    db.prepare("INSERT OR REPLACE INTO _schema_version (version) VALUES (2)").run();
+  }
+  // FTS 升级 v3：用视图作为 content，使 FTS5 能正确读取 title_zh 等列（DELETE/delete 命令会查询 content 表）
+  if (version < 3) {
+    db.exec("DROP TRIGGER IF EXISTS items_fts_after_insert");
+    db.exec("DROP TRIGGER IF EXISTS items_fts_after_update");
+    db.exec("DROP TRIGGER IF EXISTS items_fts_after_delete");
+    db.exec("DROP TABLE IF EXISTS items_fts");
+    db.exec(`
+      CREATE VIEW IF NOT EXISTS items_fts_content AS
+      SELECT rowid, title, summary, content,
+        json_extract(translations, '$."zh-CN".title') AS title_zh,
+        json_extract(translations, '$."zh-CN".summary') AS summary_zh,
+        json_extract(translations, '$."zh-CN".content') AS content_zh
+      FROM items
+    `);
+    db.exec(`
+      CREATE VIRTUAL TABLE items_fts USING fts5(
+        title, summary, content, title_zh, summary_zh, content_zh,
+        content='items_fts_content',
+        content_rowid='rowid'
+      );
+      CREATE TRIGGER items_fts_after_insert AFTER INSERT ON items
+      BEGIN
+        INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+        VALUES (
+          NEW.rowid, NEW.title, NEW.summary, NEW.content,
+          json_extract(NEW.translations, '$."zh-CN".title'),
+          json_extract(NEW.translations, '$."zh-CN".summary'),
+          json_extract(NEW.translations, '$."zh-CN".content')
+        );
+      END;
+      CREATE TRIGGER items_fts_after_update AFTER UPDATE ON items
+      BEGIN
+        DELETE FROM items_fts WHERE rowid = OLD.rowid;
+        INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+        VALUES (
+          NEW.rowid, NEW.title, NEW.summary, NEW.content,
+          json_extract(NEW.translations, '$."zh-CN".title'),
+          json_extract(NEW.translations, '$."zh-CN".summary'),
+          json_extract(NEW.translations, '$."zh-CN".content')
+        );
+      END;
+      CREATE TRIGGER items_fts_after_delete AFTER DELETE ON items
+      BEGIN
+        DELETE FROM items_fts WHERE rowid = OLD.rowid;
+      END;
+    `);
+    db.exec(`
+      INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+      SELECT rowid, title, summary, content, title_zh, summary_zh, content_zh FROM items_fts_content
+    `);
+    db.prepare("INSERT OR REPLACE INTO _schema_version (version) VALUES (3)").run();
+  }
+}
+
+
+/** 建表：items 主表 + FTS5 全文检索虚拟表（英文原文 + 中文译文 zh-CN） */
 function initSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS items (
@@ -80,6 +213,7 @@ function initSchema(db: Database.Database): void {
       author      TEXT,
       summary     TEXT,
       content     TEXT,
+      tags        TEXT,
       pub_date    TEXT,
       fetched_at  TEXT NOT NULL,
       pushed_at   TEXT
@@ -87,19 +221,33 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_items_source    ON items(source_url);
     CREATE INDEX IF NOT EXISTS idx_items_fetched   ON items(fetched_at);
     CREATE INDEX IF NOT EXISTS idx_items_pushed    ON items(pushed_at);
+    CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER PRIMARY KEY);
+    INSERT OR IGNORE INTO _schema_version VALUES (1);
     CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
-      title, summary, content,
+      title, summary, content, title_zh, summary_zh, content_zh,
       content='items',
       content_rowid='rowid'
     );
     CREATE TRIGGER IF NOT EXISTS items_fts_after_insert AFTER INSERT ON items
     BEGIN
-      INSERT INTO items_fts(rowid, title, summary, content) VALUES (NEW.rowid, NEW.title, NEW.summary, NEW.content);
+      INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+      VALUES (
+        NEW.rowid, NEW.title, NEW.summary, NEW.content,
+        json_extract(NEW.translations, '$."zh-CN".title'),
+        json_extract(NEW.translations, '$."zh-CN".summary'),
+        json_extract(NEW.translations, '$."zh-CN".content')
+      );
     END;
     CREATE TRIGGER IF NOT EXISTS items_fts_after_update AFTER UPDATE ON items
     BEGIN
       DELETE FROM items_fts WHERE rowid = OLD.rowid;
-      INSERT INTO items_fts(rowid, title, summary, content) VALUES (NEW.rowid, NEW.title, NEW.summary, NEW.content);
+      INSERT INTO items_fts(rowid, title, summary, content, title_zh, summary_zh, content_zh)
+      VALUES (
+        NEW.rowid, NEW.title, NEW.summary, NEW.content,
+        json_extract(NEW.translations, '$."zh-CN".title'),
+        json_extract(NEW.translations, '$."zh-CN".summary'),
+        json_extract(NEW.translations, '$."zh-CN".content')
+      );
     END;
     CREATE TRIGGER IF NOT EXISTS items_fts_after_delete AFTER DELETE ON items
     BEGIN
@@ -120,17 +268,17 @@ function initSchema(db: Database.Database): void {
 }
 
 
-/** 批量插入条目（已存在则跳过），返回实际新增数量，有新条目时广播 feed:updated 事件。source_url 取自 item.sourceRef（同批需一致）；若传入了 sourceUrl 则覆盖，用于兼容。 */
-export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string): Promise<number> {
-  if (items.length === 0) return 0;
+/** 批量插入条目（已存在则跳过），返回实际新增数量与新增条目 ID 集合。source_url 取自 item.sourceRef（同批需一致）；若传入了 sourceUrl 则覆盖，用于兼容。 */
+export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string): Promise<{ newCount: number; newIds: Set<string> }> {
+  if (items.length === 0) return { newCount: 0, newIds: new Set() };
   const sourceUrl = sourceUrlOverride ?? items[0].sourceRef;
   if (!sourceUrl) {
     throw new Error("upsertItems: 需在每条 item 上设置 sourceRef，或传入 sourceUrlOverride");
   }
   const db = await getDb();
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO items (id, url, source_url, title, author, summary, pub_date, fetched_at)
-    VALUES (@id, @url, @sourceUrl, @title, @author, @summary, @pubDate, @fetchedAt)
+    INSERT OR IGNORE INTO items (id, url, source_url, title, author, summary, tags, pub_date, fetched_at)
+    VALUES (@id, @url, @sourceUrl, @title, @author, @summary, @tags, @pubDate, @fetchedAt)
   `);
   const selectExistingStmt = db.prepare(`
     SELECT id, title, author, summary, pub_date, fetched_at
@@ -148,6 +296,7 @@ export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string)
   `);
   const now = new Date().toISOString();
   let newCount = 0;
+  const newIds = new Set<string>();
   const run = db.transaction((rows: FeedItem[]) => {
     for (const item of rows) {
       const nextTitle = normalizeText(item.title) || null;
@@ -156,6 +305,7 @@ export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string)
       const nextAuthor = nextAuthorArr?.length ? JSON.stringify(nextAuthorArr) : null;
       const nextPubDate =
         item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null);
+      const nextTags = item.tags?.length ? JSON.stringify(item.tags) : null;
       const info = stmt.run({
         id: item.guid,
         url: item.link,
@@ -163,10 +313,12 @@ export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string)
         title: nextTitle,
         author: nextAuthor,
         summary: nextSummary,
+        tags: nextTags,
         pubDate: nextPubDate,
         fetchedAt: now,
       });
       newCount += info.changes;
+      if (info.changes > 0) newIds.add(item.guid);
 
       if (info.changes > 0) continue;
       const existing = selectExistingStmt.get({ id: item.guid }) as {
@@ -215,20 +367,31 @@ export async function upsertItems(items: FeedItem[], sourceUrlOverride?: string)
     }
   });
   run(items);
-  if (newCount > 0) emitFeedUpdated({ sourceUrl, newCount });
-  return newCount;
+  return { newCount, newIds };
 }
 
 
-/** 更新单条目的正文内容（仅在 content 为空时写入，防止覆盖已有正文） */
+/** 批量查询哪些 GUID 已存在于数据库，返回已存在 ID 的集合；用于在 pipeline 前过滤重复条目 */
+export async function getExistingIds(guids: string[]): Promise<Set<string>> {
+  if (guids.length === 0) return new Set();
+  const db = await getDb();
+  const placeholders = guids.map(() => "?").join(",");
+  const rows = db.prepare(`SELECT id FROM items WHERE id IN (${placeholders})`).all(...guids) as { id: string }[];
+  return new Set(rows.map((r) => r.id));
+}
+
+
+/** 更新单条目的正文内容（仅在 content 为空时写入，防止覆盖已有正文）；translations 有则更新、无则保留 */
 export async function updateItemContent(item: FeedItem): Promise<void> {
   const db = await getDb();
   db.prepare(`
     UPDATE items
-    SET content  = @content,
-        author   = COALESCE(@author, author),
-        pub_date = COALESCE(@pubDate, pub_date)
-    WHERE url = @url AND content IS NULL
+    SET content      = COALESCE(content, @content),
+        author       = COALESCE(@author, author),
+        pub_date     = COALESCE(@pubDate, pub_date),
+        tags         = @tags,
+        translations = COALESCE(@translations, translations)
+    WHERE url = @url
   `).run({
     url: item.link,
     content: item.content ?? null,
@@ -237,6 +400,8 @@ export async function updateItemContent(item: FeedItem): Promise<void> {
       return arr?.length ? JSON.stringify(arr) : null;
     })(),
     pubDate: item.pubDate instanceof Date ? item.pubDate.toISOString() : (item.pubDate ?? null),
+    tags: item.tags?.length ? JSON.stringify(item.tags) : null,
+    translations: item.translations && Object.keys(item.translations).length > 0 ? JSON.stringify(item.translations) : null,
   });
 }
 
@@ -303,22 +468,29 @@ export async function queryItemsBySource(sourceUrl: string, limit = 50, since?: 
 }
 
 
-/** 查询条目列表，支持按 source_url、author（模糊）过滤、全文搜索与 since 时间过滤，返回分页结果 */
+/** 查询条目列表，支持按 source_url、sourceUrls、author、tags 过滤、全文搜索与 since 时间过滤，返回分页结果 */
 export async function queryItems(opts: {
   sourceUrl?: string;
+  sourceUrls?: string[];
   author?: string;
   q?: string;
+  tags?: string[];
   limit?: number;
   offset?: number;
   since?: Date;
+  until?: Date;
 }): Promise<{ items: DbItem[]; total: number }> {
   const db = await getDb();
-  const { sourceUrl, author, q, limit = 20, offset = 0, since } = opts;
+  const { sourceUrl, sourceUrls, author, q, tags: tagsFilter, limit = 20, offset = 0, since, until } = opts;
   const conditions: string[] = [];
   const params: Record<string, unknown> = { limit, offset };
   if (sourceUrl) {
     conditions.push("i.source_url = @sourceUrl");
     params.sourceUrl = sourceUrl;
+  } else if (sourceUrls && sourceUrls.length > 0) {
+    const placeholders = sourceUrls.map((_, i) => `@src${i}`).join(", ");
+    conditions.push(`i.source_url IN (${placeholders})`);
+    sourceUrls.forEach((s, i) => ((params as Record<string, unknown>)[`src${i}`] = s));
   }
   if (author && author.trim().length >= 2) {
     conditions.push("instr(i.author, @author) > 0");
@@ -328,15 +500,33 @@ export async function queryItems(opts: {
     conditions.push("i.rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH @q)");
     params.q = q;
   }
+  if (tagsFilter && tagsFilter.length > 0) {
+    const trimmed = tagsFilter.filter((t) => typeof t === "string" && t.trim()).map((t) => (t as string).trim());
+    if (trimmed.length > 0) {
+      const tagConds = trimmed
+        .map((_, i) => `LOWER(TRIM(json_each.value)) = LOWER(@tag${i})`)
+        .join(" OR ");
+      conditions.push(
+        `i.tags IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(i.tags) WHERE ${tagConds})`
+      );
+      trimmed.forEach((t, i) => {
+        (params as Record<string, unknown>)[`tag${i}`] = t;
+      });
+    }
+  }
   if (since) {
     conditions.push("COALESCE(i.pub_date, i.fetched_at) >= @since");
     params.since = since.toISOString();
   }
+  if (until) {
+    conditions.push("COALESCE(i.pub_date, i.fetched_at) < @until");
+    params.until = until.toISOString();
+  }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = db.prepare(`
-    SELECT i.id, i.url, i.source_url, i.title, i.author, i.summary, i.content, i.pub_date, i.fetched_at, i.pushed_at
+    SELECT i.id, i.url, i.source_url, i.title, i.author, i.summary, i.content, i.tags, i.translations, i.pub_date, i.fetched_at, i.pushed_at
     FROM items i ${where}
-    ORDER BY i.fetched_at DESC
+    ORDER BY COALESCE(i.pub_date, i.fetched_at) DESC
     LIMIT @limit OFFSET @offset
   `).all(params) as Record<string, unknown>[];
   const { count } = db.prepare(`SELECT COUNT(*) as count FROM items i ${where}`).get(params) as { count: number };
@@ -357,6 +547,21 @@ export async function markPushed(ids: string[]): Promise<void> {
 }
 
 
+/** 按 id（guid）删除单条条目；先删 FTS 索引再删主表（content 为 items_fts_content 视图，含 title_zh 等列） */
+export async function deleteItem(id: string): Promise<boolean> {
+  if (!id?.trim()) return false;
+  const db = await getDb();
+  const run = db.transaction(() => {
+    const row = db.prepare("SELECT rowid FROM items WHERE id = @id").get({ id: id.trim() }) as { rowid: number } | undefined;
+    if (!row) return 0;
+    db.prepare("DELETE FROM items_fts WHERE rowid = @rowid").run({ rowid: row.rowid });
+    const info = db.prepare("DELETE FROM items WHERE id = @id").run({ id: id.trim() });
+    return info.changes;
+  });
+  return run() > 0;
+}
+
+
 /** 查询待推送条目（pushed_at 为空且 content 不为空） */
 export async function getPendingPushItems(limit = 100): Promise<DbItem[]> {
   const db = await getDb();
@@ -367,6 +572,30 @@ export async function getPendingPushItems(limit = 100): Promise<DbItem[]> {
     LIMIT @limit
   `).all({ limit }) as Record<string, unknown>[];
   return mapRowsToDbItems(rows);
+}
+
+
+/** 查询指定日期（YYYY-MM-DD，本地时区）当日入库的所有条目，按 fetched_at 降序，最多 300 条 */
+export async function getItemsForDate(date: string): Promise<DbItem[]> {
+  const db = await getDb();
+  const start = new Date(`${date}T00:00:00`).toISOString();
+  const end = new Date(`${date}T23:59:59.999`).toISOString();
+  const rows = db.prepare(`
+    SELECT * FROM items
+    WHERE fetched_at >= @start AND fetched_at <= @end
+    ORDER BY fetched_at DESC
+    LIMIT 300
+  `).all({ start, end }) as Record<string, unknown>[];
+  return mapRowsToDbItems(rows);
+}
+
+
+/** 返回每个 source_url 的条目数量，用于信源列表页展示 */
+export async function getSourceStats(): Promise<{ source_url: string; count: number }[]> {
+  const db = await getDb();
+  return db.prepare(
+    "SELECT source_url, COUNT(*) as count FROM items GROUP BY source_url ORDER BY count DESC"
+  ).all() as { source_url: string; count: number }[];
 }
 
 
@@ -422,7 +651,168 @@ export async function queryLogs(opts: {
 }
 
 
-/** 数据库行结构（snake_case，与 FeedItem 区分）；author 已解析为数组 */
+/** 返回用户管理的系统标签（来自 .rssany/tags.json），供 pipeline tagger 参考 */
+export async function getSystemTags(): Promise<string[]> {
+  try {
+    const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as { tags?: string[] };
+    if (!Array.isArray(parsed?.tags)) return [];
+    return parsed.tags.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim());
+  } catch {
+    return [];
+  }
+}
+
+/** 返回每个标签的 track 周期（天），默认 1 */
+export async function getTagPeriods(): Promise<Record<string, number>> {
+  try {
+    const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as { periods?: Record<string, number> };
+    const periods = parsed?.periods;
+    if (!periods || typeof periods !== "object") return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(periods)) {
+      const n = Number(v);
+      if (typeof k === "string" && k.trim() && !Number.isNaN(n) && n >= 1) {
+        out[k.trim()] = Math.floor(n);
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** 保存系统标签到 .rssany/tags.json；periods 为每个标签的 track 周期（天），默认 1 */
+export async function saveSystemTags(
+  tags: string[],
+  periods?: Record<string, number>,
+): Promise<void> {
+  const list = tags.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim());
+  const payload: { tags: string[]; periods?: Record<string, number> } = { tags: list };
+  if (periods && Object.keys(periods).length > 0) {
+    const cleaned: Record<string, number> = {};
+    for (const [k, v] of Object.entries(periods)) {
+      const n = Number(v);
+      if (k.trim() && !Number.isNaN(n) && n >= 1) cleaned[k.trim()] = Math.floor(n);
+    }
+    payload.periods = cleaned;
+  }
+  await writeFile(TAGS_CONFIG_PATH, JSON.stringify(payload, null, 2), "utf-8");
+}
+
+/** 每个系统标签的统计：文章数量 + 热度 + track 周期（天） */
+export interface TagStat {
+  name: string;
+  count: number;
+  hotness: number;
+  period?: number;
+}
+
+/** 热度公式：每条带该 tag 的文章贡献 1/(1 + days_ago/7)，越新贡献越大 */
+function recencyFactor(pubDateMs: number | null, fetchedAtMs: number, nowMs: number): number {
+  const ref = pubDateMs ?? fetchedAtMs;
+  const daysAgo = (nowMs - ref) / (24 * 60 * 60 * 1000);
+  return 1 / (1 + Math.max(0, daysAgo) / 7);
+}
+
+/** 返回系统标签及其统计：文章数量、热度（数量 × 新鲜度加权） */
+export async function getTagStats(): Promise<TagStat[]> {
+  const systemTags = await getSystemTags();
+  if (systemTags.length === 0) return [];
+
+  const db = await getDb();
+  const rows = db
+    .prepare("SELECT tags, pub_date, fetched_at FROM items WHERE tags IS NOT NULL AND tags != ''")
+    .all() as { tags: string; pub_date: string | null; fetched_at: string }[];
+
+  const tagCount = new Map<string, number>();
+  const tagHotness = new Map<string, number>();
+  const systemLower = new Map(systemTags.map((t) => [t.toLowerCase(), t]));
+
+  for (const t of systemTags) {
+    tagCount.set(t, 0);
+    tagHotness.set(t, 0);
+  }
+
+  const now = Date.now();
+  for (const row of rows) {
+    let tags: string[];
+    try {
+      tags = JSON.parse(row.tags) as string[];
+    } catch {
+      continue;
+    }
+    const pubMs = row.pub_date ? Date.parse(row.pub_date) : null;
+    const fetchedMs = Date.parse(row.fetched_at);
+    const factor = recencyFactor(pubMs, fetchedMs, now);
+
+    for (const t of tags) {
+      const canonical = systemLower.get(String(t).trim().toLowerCase());
+      if (canonical) {
+        tagCount.set(canonical, (tagCount.get(canonical) ?? 0) + 1);
+        tagHotness.set(canonical, (tagHotness.get(canonical) ?? 0) + factor);
+      }
+    }
+  }
+
+  const periods = await getTagPeriods();
+  return systemTags.map((name) => ({
+    name,
+    count: tagCount.get(name) ?? 0,
+    hotness: Math.round((tagHotness.get(name) ?? 0) * 100) / 100,
+    period: periods[name] ?? 1,
+  }));
+}
+
+/** 建议聚类标签：文章中出现但不在系统标签库中的话题，按热度排序，取前 5 个且热度 > 20 */
+export async function getSuggestedTags(): Promise<TagStat[]> {
+  const systemTags = await getSystemTags();
+  const systemLower = new Set(systemTags.map((t) => t.toLowerCase().trim()));
+
+  const db = await getDb();
+  const rows = db
+    .prepare("SELECT tags, pub_date, fetched_at FROM items WHERE tags IS NOT NULL AND tags != ''")
+    .all() as { tags: string; pub_date: string | null; fetched_at: string }[];
+
+  const tagMap = new Map<string, { name: string; count: number; hotness: number }>();
+  const now = Date.now();
+
+  for (const row of rows) {
+    let tags: string[];
+    try {
+      tags = JSON.parse(row.tags) as string[];
+    } catch {
+      continue;
+    }
+    const pubMs = row.pub_date ? Date.parse(row.pub_date) : null;
+    const fetchedMs = Date.parse(row.fetched_at);
+    const factor = recencyFactor(pubMs, fetchedMs, now);
+
+    for (const t of tags) {
+      const trimmed = String(t).trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (systemLower.has(key)) continue;
+
+      const existing = tagMap.get(key);
+      if (existing) {
+        existing.count += 1;
+        existing.hotness += factor;
+      } else {
+        tagMap.set(key, { name: trimmed, count: 1, hotness: factor });
+      }
+    }
+  }
+
+  return Array.from(tagMap.values())
+    .filter((s) => s.hotness > 20)
+    .sort((a, b) => b.hotness - a.hotness)
+    .slice(0, 5)
+    .map((s) => ({ name: s.name, count: s.count, hotness: Math.round(s.hotness * 100) / 100 }));
+}
+
+/** 数据库行结构（snake_case，与 FeedItem 区分）；author / tags 等已解析为数组 */
 export interface DbItem {
   id: string;
   url: string;
@@ -431,6 +821,8 @@ export interface DbItem {
   author: string[] | null;
   summary: string | null;
   content: string | null;
+  tags: string[] | null;
+  translations: Record<string, { title?: string; summary?: string; content?: string }> | null;
   pub_date: string | null;
   fetched_at: string;
   pushed_at: string | null;

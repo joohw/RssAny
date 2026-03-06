@@ -1,9 +1,6 @@
 // HTML 列表解析器：专注于从列表页提取多个条目（支持自定义函数、LLM 两种模式）
 
 import { createHash } from "node:crypto";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { cacheKey as cacherCacheKey } from "../../../../core/cacher/index.js";
 import { applyPurify } from "../fetcher/purify.js";
 import { chatJson } from "../../../../agent/llm.js";
 import { getLLMConfig } from "../../../../agent/config.js";
@@ -17,9 +14,6 @@ function generateGuid(link: string): string {
 }
 
 
-const PARSED_SUBDIR = "parsed";
-
-
 /** 解析结果结构（类似 RSS feed 结构） */
 export interface ParsedListResult {
   /** 解析出的条目列表 */
@@ -28,13 +22,6 @@ export interface ParsedListResult {
   url?: string;
   /** 解析模式 */
   mode?: ParserMode;
-}
-
-
-/** 解析结果缓存结构 */
-interface ParsedCache extends ParsedListResult {
-  /** 缓存时间 ISO 字符串 */
-  cachedAt: string;
 }
 
 
@@ -71,12 +58,6 @@ export interface ParserConfig {
   llmConfig?: LLMParserConfig;
   /** 是否包含详细内容（content），默认 false（仅摘要） */
   includeContent?: boolean;
-  /** 缓存目录，启用时将解析结果缓存到 cacheDir/parsed/ */
-  cacheDir?: string;
-  /** 为 false 时不读缓存（但仍会写缓存），为 true 时读写缓存，默认 true */
-  useCache?: boolean;
-  /** 指定缓存 key（与 fetched 的 id 一致时可传此值），不传则按 html+url+config 计算 */
-  cacheKey?: string;
   /** 解析前是否净化 HTML（移除 script/style/nav 等无关标签），llm 模式默认 true，custom 模式不适用 */
   purify?: boolean;
 }
@@ -162,59 +143,9 @@ function toFeedItem(entry: ParsedEntry, includeContent: boolean): FeedItem {
 }
 
 
-// 与 fetched 缓存一致：使用同一套 sha256(url)，便于 fetched 与 parsed 一一对应；custom/llm 共用同一 key（llm 作为 fallback）
-function parsedCacheKey(html: string, url: string, config: ParserConfig): string {
-  if (url) return cacherCacheKey(url, "forever");
-  const keyParts = [html.slice(0, 1000), config.customParser ? "custom" : "llm", config.includeContent ? "full" : "summary"];
-  return createHash("sha256").update(keyParts.join("|")).digest("hex");
-}
-
-
-// 从缓存读取解析结果
-async function readCachedResult(cacheDir: string, key: string): Promise<ParsedListResult | null> {
-  const filePath = join(cacheDir, PARSED_SUBDIR, `${key}.json`);
-  try {
-    const raw = await readFile(filePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    // 兼容旧格式（数组）和新格式（对象）
-    if (Array.isArray(parsed)) {
-      return { items: parsed as FeedItem[] };
-    }
-    if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
-      return parsed as ParsedListResult;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-
-// 将解析结果写入缓存
-async function writeCachedResult(cacheDir: string, key: string, result: ParsedListResult): Promise<void> {
-  const dir = join(cacheDir, PARSED_SUBDIR);
-  await mkdir(dir, { recursive: true });
-  const filePath = join(dir, `${key}.json`);
-  const cache: ParsedCache = {
-    ...result,
-    cachedAt: new Date().toISOString(),
-  };
-  await writeFile(filePath, JSON.stringify(cache, null, 2), "utf-8");
-}
-
-
 /** 解析 HTML 列表页，返回包含 items 的对象（类似 RSS feed 结构） */
 export async function parseHtml(html: string, config: ParserConfig = {}): Promise<ParsedListResult> {
-  const { url = "", mode, customParser, llmConfig, includeContent = false, cacheDir, useCache = true, cacheKey: configCacheKey, purify } = config;
-  const resolveKey = () => (configCacheKey != null && configCacheKey !== "" ? configCacheKey : parsedCacheKey(html, url, config));
-  // 如果启用缓存读取，尝试从缓存读取
-  if (useCache !== false && cacheDir != null && cacheDir !== "") {
-    const key = resolveKey();
-    const cached = await readCachedResult(cacheDir, key);
-    if (cached != null) {
-      return cached;
-    }
-  }
+  const { url = "", mode, customParser, llmConfig, includeContent = false, purify } = config;
   let entries: ParsedEntry[] = [];
   const actualMode = mode ?? (llmConfig != null ? "llm" : customParser != null ? "custom" : "llm");
   if (actualMode === "llm") {
@@ -235,15 +166,9 @@ export async function parseHtml(html: string, config: ParserConfig = {}): Promis
     throw new Error(`不支持的解析模式: ${actualMode}`);
   }
   const items = entries.map((e) => toFeedItem(e, includeContent));
-  const result: ParsedListResult = {
+  return {
     items,
     url,
     mode: actualMode,
   };
-  // 如果提供了缓存目录，总是写入缓存（即使 useCache 为 false，也写入以便后续使用）
-  if (cacheDir != null && cacheDir !== "") {
-    const key = resolveKey();
-    await writeCachedResult(cacheDir, key, result);
-  }
-  return result;
 }

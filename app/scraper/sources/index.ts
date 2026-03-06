@@ -1,7 +1,7 @@
 // 统一信源注册表：汇聚 WebSource 插件、Source 插件（RSS/Email）、genericWebSource，提供 getSource 查找入口
 
 import { createWebSource, genericWebSource, setLoadedSites } from "./web/index.js";
-import { loadSiteAndSourcePlugins, loadEnrichPlugins, loadPipelinePlugins } from "./web/pluginLoader.js";
+import { loadSiteAndSourcePlugins, loadEnrichPlugins, loadPipelinePlugins } from "../../plugins/loader.js";
 import type { Source } from "./types.js";
 import { logger } from "../../core/logger/index.js";
 

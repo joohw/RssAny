@@ -13,7 +13,7 @@ export const USER_DIR = join(process.cwd(), ".rssany");
 export const DATA_DIR = join(USER_DIR, "data");
 
 
-/** 缓存目录：.rssany/cache/（fetched、parsed、extracted、feeds、domains、browser_data 等子目录）；环境变量 CACHE_DIR 可覆盖 */
+/** 缓存目录：.rssany/cache/（fetched、extracted、feeds、domains、browser_data 等子目录）；环境变量 CACHE_DIR 可覆盖 */
 export const CACHE_DIR = process.env.CACHE_DIR ?? join(USER_DIR, "cache");
 
 
@@ -27,6 +27,10 @@ export const SOURCES_CONFIG_PATH = join(USER_DIR, "sources.json");
 
 /** 首页信息流频道配置：.rssany/channels.json（channel → sourceRefs，供 Feed API 使用） */
 export const CHANNELS_CONFIG_PATH = join(USER_DIR, "channels.json");
+
+
+/** 系统标签配置：.rssany/tags.json（用户管理的标签库，供 pipeline tagger 使用） */
+export const TAGS_CONFIG_PATH = join(USER_DIR, "tags.json");
 
 
 /** @deprecated 仅用于迁移：若存在 .rssany/subscriptions.json 且无 sources.json 则迁移为 sources.json */

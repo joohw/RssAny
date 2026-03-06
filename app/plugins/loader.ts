@@ -3,8 +3,8 @@
 import { readdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import type { Site } from "./site.js";
-import type { Source } from "../types.js";
+import type { Site } from "../scraper/sources/web/site.js";
+import type { Source } from "../scraper/sources/types.js";
 import {
   BUILTIN_SOURCES_DIR,
   USER_SOURCES_DIR,
@@ -14,15 +14,36 @@ import {
   USER_PIPELINE_DIR,
   BUILTIN_PLUGINS_DIR,
   USER_PLUGINS_DIR,
-} from "../../../config/paths.js";
-import { logger } from "../../../core/logger/index.js";
-import type { FeedItem } from "../../../types/feedItem.js";
+} from "../config/paths.js";
+import { logger } from "../core/logger/index.js";
+import type { FeedItem } from "../types/feedItem.js";
+
+
+/** LLM 帮助函数，由 feeder 注入到插件上下文 */
+export interface PluginLlm {
+  chatJson: (prompt: string, config?: Record<string, unknown>, options?: { maxTokens?: number; debugLabel?: string }) => Promise<Record<string, unknown>>;
+  chatText: (prompt: string, config?: Record<string, unknown>, options?: { maxTokens?: number; debugLabel?: string }) => Promise<string>;
+}
+
+/** DB 帮助函数，由 feeder 注入到插件上下文 */
+export interface PluginDb {
+  getSystemTags: () => Promise<string[]>;
+}
+
+/** 插件统一上下文，由 feeder 在执行前注入 llm / db */
+export interface PluginContext {
+  sourceUrl?: string;
+  isEnriched?: boolean;
+  llm?: PluginLlm;
+  db?: PluginDb;
+  [key: string]: unknown;
+}
 
 
 const PLUGIN_EXTENSIONS = [".rssany.js", ".rssany.ts"];
 
 
-/** Enrich 插件上下文（与 SiteContext 类似，提供 fetchHtml、extractItem 等） */
+/** Enrich 插件上下文（提供 fetchHtml、extractItem 等） */
 export interface EnrichContext {
   cacheDir?: string;
   headless?: boolean;
@@ -32,32 +53,19 @@ export interface EnrichContext {
   extractItem(item: FeedItem, opts?: { cacheKey?: string }): Promise<FeedItem>;
 }
 
-/** Enrich 插件：可选阶段，对条目补全正文等 */
+/** Enrich 插件：对条目补全正文等 */
 export interface EnrichPlugin {
   id: string;
-  /** 匹配函数：返回 true 表示该插件适用于此条目 */
   match: (item: FeedItem, ctx: { sourceUrl?: string }) => boolean;
-  /** 补全条目，返回带 content 等的完整 FeedItem */
   enrichItem: (item: FeedItem, ctx: EnrichContext) => Promise<FeedItem>;
-  /** 优先级，升序；同匹配时优先用数字小的 */
   priority?: number;
 }
 
-/** Pipeline 插件上下文 */
-export interface PipelinePluginContext {
-  sourceUrl?: string;
-  isEnriched?: boolean;
-  [key: string]: unknown;
-}
-
-/** Pipeline 插件：可选阶段，对条目二次加工（如 tag、translate） */
+/** Pipeline 插件：对条目二次加工（如 tag、translate） */
 export interface PipelinePlugin {
   id: string;
-  /** 匹配函数：* 表示匹配全部；返回 true 表示适用 */
-  match: (item: FeedItem, ctx: PipelinePluginContext) => boolean;
-  /** 处理函数 */
-  run: (item: FeedItem, ctx: PipelinePluginContext) => Promise<FeedItem>;
-  /** 优先级，升序 */
+  match: (item: FeedItem, ctx: PluginContext) => boolean;
+  run: (item: FeedItem, ctx: PluginContext) => Promise<FeedItem>;
   priority?: number;
 }
 
@@ -89,26 +97,18 @@ function isValidSource(obj: unknown): obj is Source {
 function isValidEnrichPlugin(obj: unknown): obj is EnrichPlugin {
   if (obj == null || typeof obj !== "object") return false;
   const p = obj as Record<string, unknown>;
-  return (
-    typeof p.id === "string" &&
-    typeof p.match === "function" &&
-    typeof p.enrichItem === "function"
-  );
+  return typeof p.id === "string" && typeof p.match === "function" && typeof p.enrichItem === "function";
 }
 
 /** 判断对象是否为有效的 PipelinePlugin */
 function isValidPipelinePlugin(obj: unknown): obj is PipelinePlugin {
   if (obj == null || typeof obj !== "object") return false;
   const p = obj as Record<string, unknown>;
-  return (
-    typeof p.id === "string" &&
-    typeof p.match === "function" &&
-    typeof p.run === "function"
-  );
+  return typeof p.id === "string" && typeof p.match === "function" && typeof p.run === "function";
 }
 
 
-/** 从单个目录加载插件文件，返回 { sites, sources } */
+/** 从单个目录加载 Site / Source 插件 */
 async function loadSourcePluginsFromDir(
   dir: string,
   label: string,
@@ -180,7 +180,7 @@ async function loadPluginsFromDir<T>(
 }
 
 
-/** 加载 sources 目录，若不存在或为空则回退到 plugins 根目录；返回 { builtin, user } */
+/** 加载 sources 目录，若不存在或为空则回退到 plugins 根目录 */
 async function loadFromSourcesOrRoot(): Promise<{
   builtin: { sites: Site[]; sources: Source[] };
   user: { sites: Site[]; sources: Source[] };
@@ -193,49 +193,36 @@ async function loadFromSourcesOrRoot(): Promise<{
     builtinFromSources.sites.length +
     builtinFromSources.sources.length +
     userFromSources.sites.length +
-    userFromSources.sources.length >
-    0;
-  if (hasAny) {
-    return {
-      builtin: builtinFromSources,
-      user: userFromSources,
-    };
-  }
+    userFromSources.sources.length > 0;
+  if (hasAny) return { builtin: builtinFromSources, user: userFromSources };
   const [builtinRoot, userRoot] = await Promise.all([
     loadSourcePluginsFromDir(BUILTIN_PLUGINS_DIR, "builtin"),
     loadSourcePluginsFromDir(USER_PLUGINS_DIR, "user"),
   ]);
-  return {
-    builtin: builtinRoot,
-    user: userRoot,
-  };
+  return { builtin: builtinRoot, user: userRoot };
 }
 
 
-/** 加载所有 Site 插件：sources/ 优先，用户可覆盖同 id 内置 */
+/** 加载所有 Site 插件；用户插件可覆盖同 id 内置 */
 export async function loadPlugins(): Promise<Site[]> {
   const { builtin, user } = await loadFromSourcesOrRoot();
   const merged = new Map<string, Site>();
   for (const site of builtin.sites) merged.set(site.id, site);
   for (const site of user.sites) {
-    if (merged.has(site.id)) {
-      logger.info("plugin", "用户插件覆盖同名内置插件", { pluginId: site.id });
-    }
+    if (merged.has(site.id)) logger.info("plugin", "用户插件覆盖同名内置插件", { pluginId: site.id });
     merged.set(site.id, site);
   }
   return Array.from(merged.values());
 }
 
 
-/** 加载所有 Source 插件：sources/ 优先，用户可覆盖同 id */
+/** 加载所有 Source 插件；用户插件可覆盖同 id */
 export async function loadSourcePlugins(): Promise<Source[]> {
   const { builtin, user } = await loadFromSourcesOrRoot();
   const merged = new Map<string, Source>();
   for (const src of builtin.sources) merged.set(src.id, src);
   for (const src of user.sources) {
-    if (merged.has(src.id)) {
-      logger.info("plugin", "用户 Source 插件覆盖同名内置", { sourceId: src.id });
-    }
+    if (merged.has(src.id)) logger.info("plugin", "用户 Source 插件覆盖同名内置", { sourceId: src.id });
     merged.set(src.id, src);
   }
   return Array.from(merged.values());
@@ -257,10 +244,7 @@ export async function loadSiteAndSourcePlugins(): Promise<{ sites: Site[]; sourc
     if (sourceMap.has(s.id)) logger.info("plugin", "用户 Source 插件覆盖同名内置", { sourceId: s.id });
     sourceMap.set(s.id, s);
   }
-  return {
-    sites: Array.from(siteMap.values()),
-    sources: Array.from(sourceMap.values()),
-  };
+  return { sites: Array.from(siteMap.values()), sources: Array.from(sourceMap.values()) };
 }
 
 
@@ -316,6 +300,6 @@ export function getMatchedEnrichPlugin(item: FeedItem, ctx: { sourceUrl?: string
 
 
 /** 根据条目获取所有匹配的 Pipeline 插件（按 priority 排序） */
-export function getMatchedPipelinePlugins(item: FeedItem, ctx: PipelinePluginContext): PipelinePlugin[] {
+export function getMatchedPipelinePlugins(item: FeedItem, ctx: PluginContext): PipelinePlugin[] {
   return registeredPipelinePlugins.filter((p) => p.match(item, ctx));
 }

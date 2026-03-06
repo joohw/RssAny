@@ -7,7 +7,7 @@ import { toAuthFlow, getSiteByUrl } from "./site.js";
 import { AuthRequiredError } from "../../auth/index.js";
 import type { Site, SiteContext } from "./site.js";
 import type { Source, SourceContext } from "../types.js";
-import type { EnrichContext } from "./pluginLoader.js";
+import type { EnrichContext } from "../../../plugins/loader.js";
 import type { FeedItem } from "../../../types/feedItem.js";
 import { normalizeAuthor } from "../../../types/feedItem.js";
 
@@ -169,8 +169,6 @@ export const genericWebSource: Source = {
     }
     const parsed = await parseHtml(res.body, {
       url: res.finalUrl ?? sourceId,
-      cacheDir: ctx.cacheDir,
-      useCache: true,
     });
     return parsed.items;
   },
@@ -208,4 +206,4 @@ export function getBestSite(url: string): Site | undefined {
 
 export type { Site, SiteContext } from "./site.js";
 export { toAuthFlow, computeSpecificity } from "./site.js";
-export { loadPlugins } from "./pluginLoader.js";
+export { loadPlugins } from "../../../plugins/loader.js";

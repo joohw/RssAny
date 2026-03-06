@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import FeedCard from '$lib/FeedCard.svelte';
 
   interface ApiItem {
     url: string;
@@ -59,19 +60,6 @@
 
   function toggleToday() {
     goto(channelHref(activeFilter, !todayOnly), { replaceState: false });
-  }
-
-  function relativeTime(dateStr?: string): string {
-    if (!dateStr) return '';
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const m = Math.floor(diff / 60000);
-    if (m < 1) return '刚刚';
-    if (m < 60) return m + ' 分钟前';
-    const h = Math.floor(m / 60);
-    if (h < 24) return h + ' 小时前';
-    const d = Math.floor(h / 24);
-    if (d < 30) return d + ' 天前';
-    return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
   }
 
   function extractSource(url: string): string {
@@ -289,26 +277,16 @@
         </div>
       {:else}
         {#each allItems as item (item.link)}
-          <div class="item">
-            {#if item.author}
-              <div class="item-author-top">{item.author}</div>
-            {/if}
-            {#if item.title}
-              <a class="item-title" href={item.link} target="_blank" rel="noopener">{item.title}</a>
-            {/if}
-            {#if item.summary}
-              <p class="item-summary">{item.summary}</p>
-            {/if}
-            <div class="item-meta">
-              {#if item._sourceRef}
-                <a class="item-source" href="/preview?url={encodeURIComponent(item._sourceRef)}" title="预览该信源">{item._source}</a>
-              {:else}
-                <span class="item-source">{item._source}</span>
-              {/if}
-              <span class="item-dot"></span>
-              <span>{relativeTime(item.pubDate)}</span>
-            </div>
-          </div>
+          <FeedCard
+            title={item.title ?? ''}
+            link={item.link}
+            summary={item.summary}
+            author={item.author}
+            pubDate={item.pubDate}
+            source={item._source}
+            sourceHref={item._sourceRef ? `/feeds?url=${encodeURIComponent(item._sourceRef)}` : undefined}
+            authorHref={item.author ? `/feeds?author=${encodeURIComponent(item.author.split(',')[0]?.trim() || item.author)}` : undefined}
+          />
         {/each}
         {#if hasMore}
           <div use:sentinelObserver></div>
@@ -429,69 +407,6 @@
   .feed-list { flex: 1; overflow-y: auto; }
   .feed-list::-webkit-scrollbar { width: 4px; }
   .feed-list::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
-
-  .item {
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid #f3f3f3;
-    transition: background 0.1s;
-  }
-  .item:hover { background: #fafafa; }
-  .item-author-top {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #555;
-    margin-bottom: 0.3rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .item-title {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: #111;
-    text-decoration: none;
-    display: block;
-    line-height: 1.45;
-    margin-bottom: 0.3rem;
-  }
-  .item-title:hover { color: #0969da; }
-  .item-summary {
-    font-size: 0.8rem;
-    color: #666;
-    line-height: 1.55;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    margin-bottom: 0.4rem;
-  }
-  .item-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    font-size: 0.725rem;
-    color: #bbb;
-  }
-  .item-source {
-    max-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: inherit;
-    text-decoration: none;
-    cursor: pointer;
-  }
-  a.item-source:hover {
-    color: #0969da;
-    text-decoration: underline;
-  }
-  .item-dot {
-    width: 2px;
-    height: 2px;
-    background: #ccc;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
 
   .state {
     padding: 3rem 1.5rem;

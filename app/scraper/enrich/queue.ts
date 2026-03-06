@@ -138,7 +138,7 @@ class EnrichQueue {
                 item_url: its[itemIndex]?.link,
                 err: msg,
               });
-              const failedItem = { ...its[itemIndex], extractionFailed: true };
+              const failedItem = { ...its[itemIndex], enrichFailed: true };
               its[itemIndex] = failedItem;
               await Promise.resolve(cbs.onItemDone?.(failedItem, itemIndex));
               this.checkTaskComplete(id);

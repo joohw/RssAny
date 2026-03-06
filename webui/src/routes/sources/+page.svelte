@@ -5,7 +5,6 @@
     ref: string;
     label?: string;
     description?: string;
-    refresh?: string;
     proxy?: string;
   }
 
@@ -13,8 +12,8 @@
     ref: string;
     displayLabel: string;
     description?: string;
-    refresh?: string;
-    previewHref: string;
+    count: number | null;
+    feedsHref: string;
   }
 
   let cards: SourceCard[] = [];
@@ -36,18 +35,27 @@
     loading = true;
     loadError = '';
     try {
-      const res = await fetch('/api/sources/raw');
-      const raw = await res.text();
+      const [sourcesRes, statsRes] = await Promise.all([
+        fetch('/api/sources/raw'),
+        fetch('/api/sources/stats'),
+      ]);
+      const raw = await sourcesRes.text();
       const data = JSON.parse(raw || '{}') as { sources?: SubscriptionSource[] };
       const list = Array.isArray(data.sources) ? data.sources : [];
+
+      const statsArr = statsRes.ok
+        ? (await statsRes.json() as { source_url: string; count: number }[])
+        : [];
+      const statsMap = new Map(statsArr.map((s) => [s.source_url, s.count]));
+
       cards = list
         .filter((s) => s?.ref?.trim())
         .map((s) => ({
           ref: s.ref.trim(),
           displayLabel: (s.label && s.label.trim()) || displayLabelFromRef(s.ref),
           description: s.description?.trim(),
-          refresh: s.refresh,
-          previewHref: '/preview?url=' + encodeURIComponent(s.ref.trim()),
+          count: statsMap.get(s.ref.trim()) ?? null,
+          feedsHref: '/feeds?url=' + encodeURIComponent(s.ref.trim()),
         }))
         .sort((a, b) => a.displayLabel.localeCompare(b.displayLabel));
     } catch (e) {
@@ -69,7 +77,7 @@
   <div class="feed-col">
     <div class="feed-header">
       <h2>信源</h2>
-      <p class="sub">sources.json 中的完整信源列表，点击进入预览</p>
+      <p class="sub">已订阅的信源，点击查看已入库文章</p>
     </div>
 
   {#if loading}
@@ -81,16 +89,16 @@
   {:else}
     <div class="list">
       {#each cards as card (card.ref)}
-        <a class="card" href={card.previewHref} target="_blank" rel="noopener" title={card.ref}>
+        <a class="card" href={card.feedsHref} target="_blank" rel="noopener" title={card.ref}>
           <div class="card-main">
             <span class="card-label">{card.displayLabel}</span>
             {#if card.description}
               <span class="card-desc">{card.description}</span>
             {/if}
           </div>
-          {#if card.refresh}
-            <span class="card-meta">{card.refresh}</span>
-          {/if}
+          <span class="card-meta">
+            {card.count === null ? '—' : card.count + ' 篇'}
+          </span>
         </a>
       {/each}
     </div>

@@ -1,11 +1,11 @@
-// API 路由：server-info、rss、items、feed、sources、channels、enrich、scheduler、plugins、logs、events、admin/verify
+// API 路由：server-info、rss、items、feed、sources、channels、enrich、scheduler、plugins、logs、events、admin/verify、gateway、daily
 
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { getItems } from "../../feeder/index.js";
+import { getItems, ingestFromGateway } from "../../feeder/index.js";
 import { onFeedUpdated } from "../../core/events/index.js";
 import { SOURCES_GROUP } from "../../scraper/scheduler/index.js";
 import * as scheduler from "../../scheduler/index.js";
@@ -17,9 +17,11 @@ import { CACHE_DIR, CHANNELS_CONFIG_PATH } from "../../config/paths.js";
 import { getAllChannelConfigs, collectAllSourceRefs } from "../../core/channel/index.js";
 import { getEffectiveItemFields, type ItemTranslationFields } from "../../types/feedItem.js";
 import { AuthRequiredError, NotFoundError } from "../../scraper/auth/index.js";
-import { queryItems, queryFeedItems, getPendingPushItems, markPushed, queryLogs } from "../../db/index.js";
+import { queryItems, queryFeedItems, getPendingPushItems, markPushed, deleteItem, queryLogs, getSourceStats, saveSystemTags, getTagStats, getSuggestedTags } from "../../db/index.js";
 import { enrichQueue } from "../../scraper/enrich/index.js";
 import { getPluginSites } from "../../scraper/sources/web/index.js";
+import { todayDate } from "../../daily/index.js";
+import { readDigest, generateDigest } from "../../topics/index.js";
 
 const PORT = Number(process.env.PORT) || 3751;
 
@@ -38,17 +40,23 @@ export function registerApiRoutes(app: Hono): void {
     const headlessParam = c.req.query("headless");
     const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
     const lng = c.req.query("lng") ?? undefined;
+    const limit = Math.min(Number(c.req.query("limit") ?? 20), 200);
+    const offset = Number(c.req.query("offset") ?? 0);
     try {
       const httpId = "http-" + createHash("sha256").update(url).digest("hex").slice(0, 16);
-      const { items, fromCache } = await scheduler.enqueueWithResult(
+      const { items: allItems, fromCache } = await scheduler.enqueueWithResult(
         SOURCES_GROUP,
         httpId,
         () => getItems(url, { cacheDir: CACHE_DIR, headless, lng }),
         {}
       );
+      const total = allItems.length;
+      const pageItems = allItems.slice(offset, offset + limit);
       return c.json({
         fromCache,
-        items: items.map((item) => {
+        total,
+        hasMore: offset + pageItems.length < total,
+        items: pageItems.map((item) => {
           const { title, summary } = lng ? getEffectiveItemFields(item, lng) : { title: item.title, summary: item.summary ?? "" };
           return {
             guid: item.guid,
@@ -171,14 +179,71 @@ export function registerApiRoutes(app: Hono): void {
     }
   });
 
+  app.delete("/api/items/:id", async (c) => {
+    const id = decodeURIComponent(c.req.param("id") ?? "").trim();
+    if (!id) return c.json({ ok: false, message: "id 不能为空" }, 400);
+    const deleted = await deleteItem(id);
+    if (!deleted) return c.json({ ok: false, message: "条目不存在或已删除" }, 404);
+    return c.json({ ok: true });
+  });
+
   app.get("/api/items", async (c) => {
     const sourceUrl = c.req.query("source") ?? undefined;
+    const channelId = c.req.query("channel") ?? undefined;
     const author = c.req.query("author") ?? undefined;
     const q = c.req.query("q") ?? undefined;
+    const tagsParam = c.req.query("tags") ?? undefined;
+    const tags = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+    const daysParam = c.req.query("days");
+    const sinceParam = c.req.query("since") ?? undefined;
+    const untilParam = c.req.query("until") ?? undefined;
+    let since: Date | undefined;
+    let until: Date | undefined;
+    if (daysParam) {
+      const n = Math.max(1, Math.min(365, Number(daysParam) || 1));
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(todayStart);
+      todayEnd.setDate(todayEnd.getDate() + 1);
+      since = new Date(todayStart);
+      since.setDate(since.getDate() - (n - 1));
+      until = todayEnd;
+    } else {
+      since = sinceParam ? new Date(sinceParam) : undefined;
+      if (untilParam) {
+        if (untilParam.length === 10) {
+          const d = new Date(untilParam + "T12:00:00Z");
+          d.setUTCDate(d.getUTCDate() + 1);
+          until = d;
+        } else {
+          until = new Date(untilParam);
+        }
+      }
+    }
     const limit = Math.min(Number(c.req.query("limit") ?? 20), 200);
     const offset = Number(c.req.query("offset") ?? 0);
     const lng = c.req.query("lng") ?? undefined;
-    const result = await queryItems({ sourceUrl, author, q, limit, offset });
+
+    let sourceUrls: string[] | undefined;
+    if (channelId) {
+      const channels = await getAllChannelConfigs();
+      sourceUrls =
+        channelId === "all" || !channelId
+          ? collectAllSourceRefs(channels)
+          : (channels.find((x) => x.id === channelId)?.sourceRefs ?? []);
+    }
+
+    const result = await queryItems({
+      sourceUrl: sourceUrls ? undefined : sourceUrl,
+      sourceUrls,
+      author,
+      q,
+      tags,
+      since,
+      until,
+      limit,
+      offset,
+    });
     const items =
       lng && result.items.length > 0
         ? result.items.map((it) => {
@@ -192,7 +257,8 @@ export function registerApiRoutes(app: Hono): void {
             return { ...it, title: eff.title, summary: eff.summary, content: eff.content };
           })
         : result.items;
-    return c.json({ ...result, items });
+    const hasMore = offset + items.length < result.total;
+    return c.json({ items, total: result.total, hasMore });
   });
 
   app.get("/api/logs", async (c) => {
@@ -210,6 +276,55 @@ export function registerApiRoutes(app: Hono): void {
 
   app.get("/api/admin/verify", async (c) => {
     return c.json({ ok: true });
+  });
+
+  /** Gateway：接收外部爬虫推送的 FeedItem，直接入库（不执行 pipeline） */
+  app.post("/api/gateway/items", async (c) => {
+    try {
+      const body = await c.req.json<{ items?: unknown[]; sourceRef?: string; writeDb?: boolean }>();
+      const rawItems = Array.isArray(body?.items) ? body.items : [];
+      const sourceRef = typeof body?.sourceRef === "string" && body.sourceRef.trim() ? body.sourceRef.trim() : "gateway";
+      const writeDb = body?.writeDb !== false;
+      const result = await ingestFromGateway(rawItems, { sourceRef, writeDb });
+      return c.json(result);
+    } catch (err) {
+      return c.json(
+        { ok: false, count: 0, newCount: 0, error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
+  app.get("/api/sources/stats", async (c) => {
+    const stats = await getSourceStats();
+    return c.json(stats);
+  });
+
+  app.get("/api/tags", async (c) => {
+    const [stats, suggested] = await Promise.all([getTagStats(), getSuggestedTags()]);
+    return c.json({
+      tags: stats.map((s) => s.name),
+      stats: stats.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness, period: s.period ?? 1 })),
+      suggestedTags: suggested.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
+    });
+  });
+
+  app.put("/api/tags", async (c) => {
+    try {
+      const body = await c.req.json<{ tags?: string[]; periods?: Record<string, number> }>();
+      const list = Array.isArray(body?.tags) ? body.tags : [];
+      const periods = body?.periods && typeof body.periods === "object" ? body.periods : undefined;
+      await saveSystemTags(list, periods);
+      const [stats, suggested] = await Promise.all([getTagStats(), getSuggestedTags()]);
+      return c.json({
+        ok: true,
+        tags: stats.map((s) => s.name),
+        stats: stats.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness, period: s.period ?? 1 })),
+        suggestedTags: suggested.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
+      });
+    } catch (err) {
+      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
+    }
   });
 
   app.get("/api/sources/raw", async (c) => {
@@ -323,5 +438,74 @@ export function registerApiRoutes(app: Hono): void {
       return { ...base, title: eff.title, summary: eff.summary, content: eff.content };
     });
     return c.json({ items, hasMore });
+  });
+
+  // 日报：读取指定日期的 Markdown（Daily = topic/日期，复用 topics 存储）
+  app.get("/api/daily/dates", async (c) => {
+    const { listDigestDates } = await import("../../topics/index.js");
+    const dates = await listDigestDates(CACHE_DIR, "daily");
+    return c.json({ dates });
+  });
+
+  app.get("/api/daily/:date", async (c) => {
+    const date = (c.req.param("date") ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: "date 格式应为 YYYY-MM-DD" }, 400);
+    }
+    const content = await readDigest(CACHE_DIR, date);
+    if (content === null) {
+      return c.json({ error: "当日暂无日报", content: null }, 404);
+    }
+    return c.json({ date, content, exists: true });
+  });
+
+  app.get("/api/daily", async (c) => {
+    const date = (c.req.query("date") ?? todayDate()).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: "date 格式应为 YYYY-MM-DD" }, 400);
+    }
+    const content = await readDigest(CACHE_DIR, date);
+    if (content === null) {
+      return c.json({ date, content: null, exists: false });
+    }
+    return c.json({ date, content, exists: true });
+  });
+
+  // 手动触发日报生成
+  app.post("/api/daily/generate", async (c) => {
+    const body = await c.req.json<{ date?: string; force?: boolean }>().catch(() => ({} as { date?: string; force?: boolean }));
+    const date = body?.date ?? todayDate();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: "date 格式应为 YYYY-MM-DD" }, 400);
+    }
+    try {
+      const result = await generateDigest(CACHE_DIR, date, body?.force ?? true);
+      return c.json({ date: result.key, skipped: result.skipped, path: result.path });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  });
+
+  // 话题/日报：key 为日期或话题，统一读取与生成
+  app.get("/api/topics/:key", async (c) => {
+    const key = decodeURIComponent(c.req.param("key") ?? "").trim();
+    if (!key) return c.json({ error: "key 参数缺失" }, 400);
+    const content = await readDigest(CACHE_DIR, key);
+    if (content === null) {
+      return c.json({ key, content: null, exists: false });
+    }
+    return c.json({ key, content, exists: true });
+  });
+
+  app.post("/api/topics/:key/generate", async (c) => {
+    const key = decodeURIComponent(c.req.param("key") ?? "").trim();
+    if (!key) return c.json({ error: "key 参数缺失" }, 400);
+    const body = await c.req.json<{ force?: boolean }>().catch(() => ({} as { force?: boolean }));
+    try {
+      const result = await generateDigest(CACHE_DIR, key, body?.force ?? true);
+      return c.json(result);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
   });
 }

@@ -70,9 +70,9 @@
         <h2>可用工具</h2>
         <ul class="tools-list">
           <li><code>list_channels</code> — 列出所有频道（id、标题、描述）</li>
-          <li><code>get_channel_feeds</code> — 获取指定频道或全部的信息流（可选 channel_id、limit、offset）</li>
+          <li><code>get_channel_feeds</code> — 获取频道 feeds（channel_id、since/until、tags、author、分页）</li>
           <li><code>get_feed_detail</code> — 根据条目 id 获取单条完整详情（含正文）</li>
-          <li><code>search_feeds</code> — 全文搜索（title/summary/content），可选 source_url、分页</li>
+          <li><code>search_feeds</code> — 全文搜索或筛选（q、channel_id、source_url、author、tags、since/until、分页）</li>
         </ul>
       </section>
     </div>

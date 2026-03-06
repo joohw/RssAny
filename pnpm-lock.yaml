@@ -44,6 +44,9 @@ importers:
       mailparser:
         specifier: ^3.9.3
         version: 3.9.3
+      marked:
+        specifier: ^17.0.3
+        version: 17.0.3
       node-cron:
         specifier: ^3.0.3
         version: 3.0.3
@@ -2264,6 +2267,11 @@ packages:
 
   mailparser@3.9.3:
     resolution: {integrity: sha512-AnB0a3zROum6fLaa52L+/K2SoRJVyFDk78Ea6q1D0ofcZLxWEWDtsS1+OrVqKbV7r5dulKL/AwYQccFGAPpuYQ==}
+
+  marked@17.0.3:
+    resolution: {integrity: sha512-jt1v2ObpyOKR8p4XaUJVk3YWRJ5n+i4+rjQopxvV32rSndTJXvIzuUdWWIy/1pFQMkQmvTXawzDNqOH/CUmx6A==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -5615,6 +5623,8 @@ snapshots:
       nodemailer: 7.0.13
       punycode.js: 2.3.1
       tlds: 1.261.0
+
+  marked@17.0.3: {}
 
   math-intrinsics@1.1.0: {}
 
