@@ -4,5 +4,9 @@
             { "id": "tagger", "enabled": false },
             { "id": "translator", "enabled": false }
         ]
+    },
+    "deliver": {
+        "enabled": false,
+        "url": ""
     }
 }

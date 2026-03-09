@@ -40,7 +40,7 @@ function createPullTask(ref: string, cacheDir: string, refreshInterval?: Refresh
 export const SOURCES_GROUP = "sources";
 
 /** 读取 sources.json 扁平列表并重建定时器（每个信源按 refresh 独立调度） */
-async function rescheduleSources(cacheDir: string): Promise<void> {
+async function rescheduleSources(cacheDir: string, runNow: boolean): Promise<void> {
   scheduler.unscheduleGroup(SOURCES_GROUP);
   scheduler.registerGroup(SOURCES_GROUP, SOURCES_CONCURRENCY);
   let sources: Awaited<ReturnType<typeof getAllSources>>;
@@ -69,7 +69,7 @@ async function rescheduleSources(cacheDir: string): Promise<void> {
         retries: 2,
         retryDelayMs: 5000,
         group: SOURCES_GROUP,
-        runNow: true,
+        runNow,
       }
     );
   }
@@ -77,13 +77,13 @@ async function rescheduleSources(cacheDir: string): Promise<void> {
 
 
 export async function initScheduler(cacheDir: string): Promise<void> {
-  await rescheduleSources(cacheDir);
+  await rescheduleSources(cacheDir, false);
   let debounceTimer: NodeJS.Timeout | null = null;
   try {
     const watcher = watch(SOURCES_CONFIG_PATH, () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        rescheduleSources(cacheDir).catch(() => {});
+        rescheduleSources(cacheDir, true).catch(() => {});
       }, 500);
     });
     watcher.on("error", () => {});

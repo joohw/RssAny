@@ -16,6 +16,7 @@ export type LogCategory =
   | "app"      // HTTP 服务、启动、隧道
   | "config"   // 配置与迁移
   | "pipeline" // 入库前处理链（翻译、打标签等）
+  | "deliver"  // 入库后投递到远端
   | "daily"    // 每日日报生成
   | "topics";  // 话题追踪报告生成
 

@@ -292,10 +292,25 @@ Pipeline 位于 `app/pipeline/`，步骤开关与排序由 `.rssany/config.json`
 }
 ```
 
-- **tagger**：从系统标签库（话题 tags 并集）自动匹配标签
+- **tagger**：从系统标签库自动匹配标签
 - **translator**：将标题、摘要、正文翻译为中文（`lng=zh-CN` 时输出译文）
 
-`steps` 数组顺序即执行顺序，`enabled: false` 的步骤跳过。API：`GET/PUT /api/pipeline`。配置 `OPENAI_API_KEY` 后开箱即用。
+`steps` 数组顺序即执行顺序，`enabled: false` 的步骤跳过。管理页：`/admin/pipeline`，支持拖拽排序与开关。API：`GET/PUT /api/pipeline`。配置 `OPENAI_API_KEY` 后开箱即用。
+
+### 投递
+
+投递为独立配置，需同时开启 `enabled` 并设置 `url` 才生效。启用后**不写本机数据库**，仅将条目 POST 到该 URL（纯转发节点）：
+
+```json
+{
+  "deliver": {
+    "enabled": true,
+    "url": "https://other-server/api/gateway/items"
+  }
+}
+```
+
+管理页：`/admin/deliver`。测试端点：`POST /api/deliver/test`（不写数据库，仅发送示例条目）。
 
 详细插件规范见 [AGENTS.MD](./AGENTS.MD)。
 

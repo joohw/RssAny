@@ -7,6 +7,7 @@ import { cacheKey } from "../core/cacher/index.js";
 import { getSource } from "../scraper/sources/index.js";
 import { getMatchedEnrichPlugin } from "../plugins/loader.js";
 import { runPipeline } from "../pipeline/index.js";
+import { deliverItem, isDeliverEnabled } from "../deliver/index.js";
 import { buildEnrichContext } from "../scraper/sources/web/index.js";
 import { AuthRequiredError } from "../scraper/auth/index.js";
 import { buildRssXml } from "./rss.js";
@@ -143,31 +144,42 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     logger.debug("feeder", "feeds 缓存写入", { key, count: items.length });
   }
   generatingKeys.delete(key);
+
+  const deliverEnabled = await isDeliverEnabled();
+  /** 启用投递时不写数据库，仅转发 */
+  const effectiveWriteDb = config.writeDb && !deliverEnabled;
+
   let newCount = 0;
   let newIds = new Set<string>();
-  if (config.writeDb) {
+  if (effectiveWriteDb) {
     const result = await upsertItems(items).catch((err) => {
       logger.warn("db", "upsertItems 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) });
       return { newCount: 0, newIds: new Set<string>() };
     });
     newCount = result.newCount;
     newIds = result.newIds;
+  } else if (deliverEnabled) {
+    newIds = new Set(items.map((i) => i.guid));
   }
+
   const hasEnrich =
     source.enrichItem != null || items.some((i) => getMatchedEnrichPlugin(i, { sourceUrl: listUrl }));
   if (!includeContent || items.length === 0 || !hasEnrich) {
-    // 无 enrich 时，pipeline 在入库后对新条目执行一次
     for (let i = 0; i < items.length; i++) {
       if (!newIds.has(items[i].guid)) continue;
       const processed = await runPipelineOnItem(items[i], { sourceUrl: listUrl, isEnriched: false });
       items[i] = processed;
-      if (config.writeDb) {
-        updateItemContent(processed).catch((err) =>
-          logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
-        );
+      if (effectiveWriteDb) {
+        updateItemContent(processed)
+          .then(() => deliverItem(processed))
+          .catch((err) =>
+            logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+          );
+      } else if (deliverEnabled) {
+        await deliverItem(processed).catch(() => {});
       }
     }
-    if (config.writeDb && newCount > 0) {
+    if (effectiveWriteDb && newCount > 0) {
       emitFeedUpdated({ sourceUrl: listUrl, newCount });
     }
     if (cacheDir) {
@@ -184,22 +196,25 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
       sourceUrl: listUrl,
       onItemDone: async (enrichedItem, index) => {
         enrichedItem.sourceRef = listUrl;
-        // 只对新条目执行 pipeline，已存在于 DB 的条目跳过
         const processed = newIds.has(enrichedItem.guid)
           ? await runPipelineOnItem(enrichedItem, { sourceUrl: listUrl, isEnriched: true })
           : enrichedItem;
         items[index] = processed;
-        if (config.writeDb) {
-          updateItemContent(processed).catch((err) =>
-            logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
-          );
+        if (effectiveWriteDb) {
+          updateItemContent(processed)
+            .then(() => deliverItem(processed))
+            .catch((err) =>
+              logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
+            );
+        } else if (deliverEnabled) {
+          await deliverItem(processed).catch(() => {});
         }
         if (cacheDir) {
           await writeItemsCache(cacheDir, key, items);
         }
       },
       onAllDone: async () => {
-        if (config.writeDb && newCount > 0) {
+        if (effectiveWriteDb && newCount > 0) {
           emitFeedUpdated({ sourceUrl: listUrl, newCount });
         }
         if (cacheDir) {
@@ -306,6 +321,9 @@ export async function ingestFromGateway(
   config: GatewayIngestConfig,
 ): Promise<{ ok: boolean; count: number; newCount: number; errors?: string[] }> {
   const { sourceRef, writeDb = true } = config;
+  if (await isDeliverEnabled()) {
+    return { ok: true, count: 0, newCount: 0, errors: undefined };
+  }
   const items: FeedItem[] = [];
   const errors: string[] = [];
   for (let i = 0; i < rawItems.length; i++) {

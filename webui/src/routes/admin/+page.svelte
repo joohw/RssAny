@@ -7,6 +7,20 @@
     concurrency: number;
     scheduledCount: number;
     completedCount?: number;
+    /** 0=执行中, -1=无定时, 其他=下次时间戳 */
+    nextRunTime?: number;
+  }
+
+  function formatNextRun(nextRunTime: number | undefined): string {
+    if (nextRunTime === undefined) return '';
+    if (nextRunTime === 0) return '· 正在执行';
+    if (nextRunTime === -1) return '· 无定时任务';
+    const d = new Date(nextRunTime);
+    const now = Date.now();
+    const diff = nextRunTime - now;
+    if (diff < 60000) return `· 约 ${Math.round(diff / 1000)} 秒后`;
+    if (diff < 3600000) return `· 约 ${Math.round(diff / 60000)} 分钟后`;
+    return `· 下次 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
   }
 
   const groups = [
@@ -15,21 +29,22 @@
       links: [
         { href: '/admin/channels', label: '频道', desc: '首页信息流分组与信源聚合' },
         { href: '/admin/tags', label: '标签', desc: '系统标签库，新入库条目由 LLM 自动匹配打标签' },
-        { href: '/topics', label: '话题', desc: '话题追踪与报告生成' },
+        { href: '/admin/pipeline', label: 'Pipeline', desc: '入库前处理（打标签、翻译），支持顺序与开关' },
         { href: '/admin/plugins', label: '插件', desc: '已加载插件与登录状态' },
-        { href: '/admin/logs', label: '日志', desc: '系统运行日志' },
       ],
     },
     {
       title: '集成',
       links: [
         { href: '/admin/mcp', label: 'MCP', desc: 'MCP 接入配置说明' },
+        { href: '/admin/deliver', label: '投递', desc: '开始投递后本机作为纯爬虫节点，不写本地数据库' },
         { href: '/admin/distributed-crawler', label: '分布式爬虫', desc: '将爬虫 POST 端点指向当前服务器' },
       ],
     },
     {
       title: '调试',
       links: [
+        { href: '/admin/logs', label: '日志', desc: '系统运行日志' },
         { href: '/admin/parse', label: 'Parse', desc: '从列表页解析条目，返回 JSON' },
         { href: '/admin/extractor', label: 'Enrich', desc: '从详情页提取正文，返回 JSON' },
       ],
@@ -86,6 +101,7 @@
                   <span class="scheduler-name">{groupName}</span>
                   <span class="scheduler-meta">
                     执行中 {running}/{stats.concurrency} · 排队 {stats.queued} · 定时 {stats.scheduledCount} · 已完成 {completed}
+                    {formatNextRun(stats.nextRunTime)}
                   </span>
                 </div>
                 <div class="scheduler-slots">
@@ -172,7 +188,7 @@
   }
   .scheduler-card {
     padding: 0;
-    background: #f9fafb;
+    background: #fff;
     border: 1px solid #e5e7eb;
     border-radius: 6px;
     overflow: hidden;

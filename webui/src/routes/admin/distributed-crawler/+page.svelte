@@ -20,12 +20,6 @@
     ]
   }'`;
 
-  $: pipelineExample = `fetch('${origin}/api/gateway/items', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ items: [item], sourceRef: 'pipeline-forward' })
-})`;
-
   onMount(async () => {
     try {
       const res = await fetch('/api/server-info');
@@ -70,10 +64,8 @@
       </section>
 
       <section class="doc-section">
-        <h3 class="section-title">Pipeline 中投递到远端</h3>
-        <p class="doc-p">若在 pipeline 中扩展步骤，将条目投递到其他节点：</p>
-        <pre class="code-block"><code>{pipelineExample}</code></pre>
-        <p class="hint">将 <code>fetch</code> 的 URL 改为目标服务器的 <code>/api/gateway/items</code> 地址。</p>
+        <h3 class="section-title">入库后投递到远端</h3>
+        <p class="doc-p">在 <a href="/admin/deliver">投递设置</a> 中配置目标 URL 后，入库完成会自动将条目 POST 到该地址。</p>
       </section>
     </div>
   </div>

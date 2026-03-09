@@ -35,7 +35,7 @@ function createTopicTask(cacheDir: string, topicTitle: string): scheduler.Schedu
 
 
 /** 读取 topics.json 并为每个话题注册独立定时任务 */
-async function rescheduleTopics(cacheDir: string): Promise<void> {
+async function rescheduleTopics(cacheDir: string, runNow: boolean): Promise<void> {
   scheduler.unscheduleGroup(TOPICS_GROUP);
   scheduler.registerGroup(TOPICS_GROUP, TOPICS_CONCURRENCY);
 
@@ -56,7 +56,7 @@ async function rescheduleTopics(cacheDir: string): Promise<void> {
       retries: 1,
       retryDelayMs: 60_000,
       group: TOPICS_GROUP,
-      runNow: false,
+      runNow,
     });
   }
 
@@ -65,14 +65,14 @@ async function rescheduleTopics(cacheDir: string): Promise<void> {
 
 
 export async function initTopicsScheduler(cacheDir: string): Promise<void> {
-  await rescheduleTopics(cacheDir);
+  await rescheduleTopics(cacheDir, false);
 
   let debounceTimer: NodeJS.Timeout | null = null;
   try {
     const watcher = watch(TOPICS_CONFIG_PATH, () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        rescheduleTopics(cacheDir).catch(() => {});
+        rescheduleTopics(cacheDir, true).catch(() => {});
       }, 500);
     });
     watcher.on("error", () => {});

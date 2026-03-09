@@ -21,7 +21,7 @@ export interface PipelineContext {
   db?: { getSystemTags: () => Promise<string[]> };
 }
 
-/** 所有可用步骤的注册表 */
+/** Pipeline 步骤注册表 */
 const STEP_REGISTRY: Record<string, { match: (item: FeedItem, ctx: PipelineContext) => boolean; run: (item: FeedItem, ctx: PipelineContext) => Promise<FeedItem> }> = {
   tagger: { match: taggerMatch, run: runTagger },
   translator: { match: translatorMatch, run: runTranslator },

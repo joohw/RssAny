@@ -1,5 +1,6 @@
 // 通用调度器：支持定时任务（间隔/cron）、重试与分组并发
 
+import { CronExpressionParser } from "cron-parser";
 import { schedule as cronSchedule, validate as cronValidate } from "node-cron";
 
 /** 校验 cron 表达式是否合法 */
@@ -34,9 +35,13 @@ interface RegisteredTask {
   id: string;
   /** 间隔毫秒（cron 时为 0） */
   intervalMs: number;
+  /** cron 表达式（仅当 intervalMs 为 0 时有效） */
+  cronExpr?: string;
   task: ScheduledTask;
   options: ScheduleOptions;
   stop: () => void;
+  /** 上次触发时间（用于计算下次执行） */
+  lastRunTime: number;
 }
 
 
@@ -191,25 +196,35 @@ export function schedule(
   const group = options.group;
   if (group) ensureGroup(group, groups.get(group)?.config.concurrency ?? 5);
 
-  const runTask = () => {
-    if (group) {
-      enqueueAndProcess(group, id, task, options);
-    } else {
-      runWithRetry(task, options).catch(() => {});
-    }
-  };
-
   let stop: () => void;
   let intervalMs: number;
+  let cronExpr: string | undefined;
 
   if (typeof intervalOrCron === "string") {
     if (!cronValidate(intervalOrCron)) return false;
-    const job = cronSchedule(intervalOrCron, runTask);
+    cronExpr = intervalOrCron;
+    const job = cronSchedule(intervalOrCron, () => {
+      const reg = tasks.get(id);
+      if (reg) reg.lastRunTime = Date.now();
+      if (group) {
+        enqueueAndProcess(group, id, task, options);
+      } else {
+        runWithRetry(task, options).catch(() => {});
+      }
+    });
     stop = () => job.stop();
     intervalMs = 0;
   } else {
     if (!intervalOrCron || intervalOrCron <= 0) return false;
-    const timer = setInterval(runTask, intervalOrCron);
+    const timer = setInterval(() => {
+      const reg = tasks.get(id);
+      if (reg) reg.lastRunTime = Date.now();
+      if (group) {
+        enqueueAndProcess(group, id, task, options);
+      } else {
+        runWithRetry(task, options).catch(() => {});
+      }
+    }, intervalOrCron);
     stop = () => clearInterval(timer);
     intervalMs = intervalOrCron;
   }
@@ -217,9 +232,11 @@ export function schedule(
   tasks.set(id, {
     id,
     intervalMs,
+    cronExpr,
     task,
     options,
     stop,
+    lastRunTime: 0,
   });
 
   if (options.runNow) {
@@ -258,6 +275,7 @@ export function unscheduleGroup(group: string): void {
 export function runNow(id: string, priority = false): Promise<void> {
   const reg = tasks.get(id);
   if (!reg) return Promise.resolve();
+  reg.lastRunTime = Date.now();
   const group = reg.options.group;
   if (group) {
     return new Promise<void>((resolve) => {
@@ -332,6 +350,34 @@ export interface GroupStats {
   scheduledCount: number;
   /** 已完成任务数（含定时任务每次执行 + 单次任务，进程启动后累计） */
   completedCount: number;
+  /**
+   * 下次任务时间（毫秒时间戳）
+   * - 0：正在执行
+   * - -1：无定时任务
+   * - 其他：下次预计执行时间戳
+   */
+  nextRunTime: number;
+}
+
+
+function getNextRunForTask(reg: RegisteredTask): number {
+  const now = Date.now();
+  if (reg.intervalMs > 0) {
+    const base = reg.lastRunTime || now;
+    return base + reg.intervalMs;
+  }
+  if (reg.cronExpr) {
+    try {
+      const expr = CronExpressionParser.parse(reg.cronExpr, {
+        currentDate: reg.lastRunTime ? new Date(reg.lastRunTime) : new Date(),
+      });
+      const next = expr.next();
+      return next.getTime();
+    } catch {
+      return -1;
+    }
+  }
+  return -1;
 }
 
 
@@ -341,13 +387,24 @@ export interface GroupStats {
 export function getGroupStats(): Record<string, GroupStats> {
   const result: Record<string, GroupStats> = {};
   for (const [name, g] of groups) {
-    const scheduledCount = [...tasks.values()].filter((t) => t.options.group === name).length;
+    const groupTasks = [...tasks.values()].filter((t) => t.options.group === name);
+    const scheduledCount = groupTasks.length;
+    let nextRunTime: number;
+    if (g.running > 0) {
+      nextRunTime = 0;
+    } else if (scheduledCount === 0) {
+      nextRunTime = -1;
+    } else {
+      const times = groupTasks.map(getNextRunForTask).filter((t) => t > 0);
+      nextRunTime = times.length > 0 ? Math.min(...times) : -1;
+    }
     result[name] = {
       running: g.running,
       queued: g.queue.length,
       concurrency: g.config.concurrency,
       scheduledCount,
       completedCount: g.completedCount ?? 0,
+      nextRunTime,
     };
   }
   return result;
