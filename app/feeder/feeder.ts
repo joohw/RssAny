@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { cacheKey } from "../core/cacher/index.js";
+import { cacheKey, cacheKeyFromCron } from "../core/cacher/index.js";
 import { getSource } from "../scraper/sources/index.js";
 import { getMatchedEnrichPlugin } from "../plugins/loader.js";
 import { runPipeline } from "../pipeline/index.js";
@@ -227,12 +227,13 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
 }
 
 
-/** 根据 list URL 获取条目列表：按站点刷新策略生成时间窗口 key，命中缓存则直接返回，否则抓取并缓存 */
+/** 根据 list URL 获取条目列表：按 cron 或 refresh 策略生成时间窗口 key，命中缓存则直接返回，否则抓取并缓存 */
 export async function getItems(listUrl: string, config: FeederConfig = {}): Promise<{ items: FeedItem[]; fromCache: boolean }> {
   const { cacheDir = "cache" } = config;
   const source = getSource(listUrl);
-  const strategy = config.refreshInterval ?? source.refreshInterval ?? "1day";
-  const key = cacheKey(listUrl, strategy);
+  const key = config.cron
+    ? cacheKeyFromCron(listUrl, config.cron)
+    : cacheKey(listUrl, config.refreshInterval ?? source.refreshInterval ?? "1day");
   if (cacheDir) {
     const cachedItems = await readItemsCache(cacheDir, key);
     if (cachedItems !== null) {

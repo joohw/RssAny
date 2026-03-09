@@ -26,7 +26,7 @@ export function registerTasksRoutes(app: Hono): void {
         if (!topicKey) return c.json({ error: "topicKey 不能为空" }, 400);
         const force = body.force ?? true;
         const taskId = taskStore.createTask();
-        scheduler.enqueueWithResult(TOPICS_GROUP, taskId, async () => {
+        scheduler.schedule(TOPICS_GROUP, taskId, async () => {
           taskStore.setTaskRunning(taskId);
           try {
             const result = await generateDigest(CACHE_DIR, topicKey, force);
@@ -38,7 +38,7 @@ export function registerTasksRoutes(app: Hono): void {
             taskStore.setTaskError(taskId, msg);
             throw err;
           }
-        }).catch(() => {});
+        }, {}).catch(() => {});
         return c.json({ taskId });
       }
       return c.json({ error: `未知任务类型: ${type}` }, 400);

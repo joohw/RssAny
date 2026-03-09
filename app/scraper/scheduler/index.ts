@@ -6,7 +6,7 @@ import { resolveRef } from "../subscription/types.js";
 import { getItems } from "../../feeder/index.js";
 import { SOURCES_CONFIG_PATH } from "../../config/paths.js";
 import type { RefreshInterval } from "../../utils/refreshInterval.js";
-import { refreshIntervalToMs, cronToRefreshInterval } from "../../utils/refreshInterval.js";
+import { refreshIntervalToCron } from "../../utils/refreshInterval.js";
 import * as scheduler from "../../scheduler/index.js";
 import { logger } from "../../core/logger/index.js";
 
@@ -16,12 +16,12 @@ const DEFAULT_REFRESH: RefreshInterval = "1day";
 const SOURCES_CONCURRENCY = 5;
 
 
-function createPullTask(ref: string, cacheDir: string, refreshInterval?: RefreshInterval): scheduler.ScheduledTask {
+function createPullTask(ref: string, cacheDir: string, cronExpr: string): scheduler.ScheduledTask {
   return async () => {
     try {
       await getItems(ref, {
         cacheDir,
-        refreshInterval: refreshInterval ?? DEFAULT_REFRESH,
+        cron: cronExpr,
         writeDb: true,
       });
       logger.info("source", "拉取成功", { source_url: ref });
@@ -42,7 +42,6 @@ export const SOURCES_GROUP = "sources";
 /** 读取 sources.json 扁平列表并重建定时器（每个信源按 refresh 独立调度） */
 async function rescheduleSources(cacheDir: string, runNow: boolean): Promise<void> {
   scheduler.unscheduleGroup(SOURCES_GROUP);
-  scheduler.registerGroup(SOURCES_GROUP, SOURCES_CONCURRENCY);
   let sources: Awaited<ReturnType<typeof getAllSources>>;
   try {
     sources = await getAllSources();
@@ -52,26 +51,17 @@ async function rescheduleSources(cacheDir: string, runNow: boolean): Promise<voi
   for (const src of sources) {
     const ref = resolveRef(src);
     if (!ref) continue;
-    const intervalOrCron: number | string = src.cron
+    const cronExpr: string = src.cron
       ? src.cron
-      : refreshIntervalToMs(src.refresh ?? DEFAULT_REFRESH);
-    if (typeof intervalOrCron === "string") {
-      if (!scheduler.validateCron(intervalOrCron)) continue;
-    } else if (!intervalOrCron || intervalOrCron <= 0) {
-      continue;
-    }
-    const cacheStrategy = src.refresh ?? (typeof intervalOrCron === "string" ? cronToRefreshInterval(intervalOrCron) : undefined) ?? DEFAULT_REFRESH;
-    scheduler.schedule(
-      ref,
-      intervalOrCron,
-      createPullTask(ref, cacheDir, cacheStrategy),
-      {
-        retries: 2,
-        retryDelayMs: 5000,
-        group: SOURCES_GROUP,
-        runNow,
-      }
-    );
+      : refreshIntervalToCron(src.refresh ?? DEFAULT_REFRESH);
+    if (!scheduler.validateCron(cronExpr)) continue;
+    scheduler.schedule(SOURCES_GROUP, ref, createPullTask(ref, cacheDir, cronExpr), {
+      cron: cronExpr,
+      retries: 2,
+      retryDelayMs: 5000,
+      concurrency: SOURCES_CONCURRENCY,
+      runNow,
+    });
   }
 }
 

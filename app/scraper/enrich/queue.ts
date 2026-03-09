@@ -25,7 +25,6 @@ class EnrichQueue {
     if (this.configLoaded) return { concurrency: 2, maxRetries: 2 };
     const config = await loadEnrichConfig();
     this.configLoaded = true;
-    scheduler.registerGroup(ENRICH_GROUP, config.concurrency);
     logger.info("enrich", "配置加载完成", { concurrency: config.concurrency, maxRetries: config.maxRetries });
     return config;
   }
@@ -146,7 +145,7 @@ class EnrichQueue {
           }
         }
       };
-      scheduler.enqueueOneOff(ENRICH_GROUP, workId, taskFn, {}).catch(() => {});
+      scheduler.schedule(ENRICH_GROUP, workId, taskFn, { concurrency: config.concurrency }).catch(() => {});
     }
     return id;
   }

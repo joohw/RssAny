@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { CacheKeyStrategy, StructuredHtmlResult } from "../../scraper/sources/web/fetcher/types.js";
+import { cronToRefreshInterval } from "../../utils/refreshInterval.js";
 
 
 const FETCHED_SUBDIR = "fetched";
@@ -43,6 +44,7 @@ function urlHash(url: string): string {
 
 
 // 将时间映射到对应策略的时间窗口前缀（UTC）
+// 与 refreshIntervalToCron 的时间边界一致：如 1h 策略，窗口为整点，cron 为 "0 * * * *"
 function timeBucket(strategy: CacheKeyStrategy, now: Date): string {
   const y = now.getUTCFullYear();
   const mo = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -80,6 +82,12 @@ export function cacheKey(url: string, strategy: CacheKeyStrategy = "forever", no
   const hash = urlHash(url);
   if (strategy === "forever") return hash;
   return `${timeBucket(strategy, now)}-${hash}`;
+}
+
+
+/** 基于 cron 表达式生成缓存 key：策略由 cronToRefreshInterval 派生，与调度触发时刻对齐 */
+export function cacheKeyFromCron(url: string, cron: string, now: Date = new Date()): string {
+  return cacheKey(url, cronToRefreshInterval(cron), now);
 }
 
 

@@ -20,7 +20,15 @@
     const diff = nextRunTime - now;
     if (diff < 60000) return `· 约 ${Math.round(diff / 1000)} 秒后`;
     if (diff < 3600000) return `· 约 ${Math.round(diff / 60000)} 分钟后`;
-    return `· 下次 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+    const timeStr = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const today = new Date(now);
+    const isToday = d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const isTomorrow = d.getDate() === tomorrow.getDate() && d.getMonth() === tomorrow.getMonth() && d.getFullYear() === tomorrow.getFullYear();
+    if (isToday) return `· 下次 ${timeStr}`;
+    if (isTomorrow) return `· 下次 明天 ${timeStr}`;
+    return `· 下次 ${d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })} ${timeStr}`;
   }
 
   const groups = [

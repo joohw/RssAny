@@ -29,7 +29,9 @@ export interface FeederConfig {
   includeContent?: boolean;
   /** 是否使用无头浏览器，默认 true；设为 false 时使用有头浏览器（可视化） */
   headless?: boolean;
-  /** 调用方传入的有效时间窗口覆盖：优先级最高，覆盖 source 声明 */
+  /** 调用方传入的 cron 表达式：有值时优先于 refreshInterval，缓存键策略由 cron 派生 */
+  cron?: string;
+  /** 调用方传入的有效时间窗口覆盖：cron 未设时使用，覆盖 source 声明 */
   refreshInterval?: RefreshInterval;
   /** 调用方传入的代理覆盖：优先级最高，覆盖 source 声明 */
   proxy?: string;

@@ -20,11 +20,10 @@ export function registerRssApiRoutes(app: Hono): void {
     const offset = Number(c.req.query("offset") ?? 0);
     try {
       const httpId = "http-" + createHash("sha256").update(url).digest("hex").slice(0, 16);
-      const { items: allItems, fromCache } = await scheduler.enqueueWithResult(
+      const { items: allItems, fromCache } = await scheduler.schedule(
         SOURCES_GROUP,
         httpId,
-        () => getItems(url, { cacheDir: CACHE_DIR, headless, lng }),
-        {}
+        () => getItems(url, { cacheDir: CACHE_DIR, headless, lng })
       );
       const total = allItems.length;
       const pageItems = allItems.slice(offset, offset + limit);

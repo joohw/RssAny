@@ -1,4 +1,9 @@
-// RefreshInterval：类型定义 + interval → ms 转换，供全项目共用
+// RefreshInterval：类型定义 + interval ↔ cron ↔ 缓存 key 转换，供全项目共用
+// 调度与缓存 key 对齐：refresh 自动转 cron，cron 转 strategy 与 cacher.timeBucket 一致
+// - refreshIntervalToCron(interval) → 调度器使用的 cron
+// - cronToRefreshInterval(cron) → cacher.cacheKey 使用的 strategy
+// - cacher.timeBucket(strategy) → 缓存 key 的时间窗口前缀
+// 三者逻辑一致，保证调度触发时刻与缓存 key 时间窗口边界对齐
 
 import type { CacheKeyStrategy } from "../scraper/sources/web/fetcher/types.js";
 
@@ -12,7 +17,8 @@ export const VALID_INTERVALS: RefreshInterval[] = ["1min", "5min", "10min", "30m
 
 
 /**
- * 从 cron 表达式推断缓存策略，使缓存 key 与执行频率一致
+ * 从 cron 表达式推断缓存策略（RefreshInterval），供 cacheKey 使用
+ * 与 refreshIntervalToCron 互为逆映射，保证调度时间与缓存 key 时间窗口一致
  * 格式：minute hour day month weekday（5 字段）或 second minute hour day month weekday（6 字段）
  */
 export function cronToRefreshInterval(cronExpr: string): RefreshInterval {
@@ -50,6 +56,27 @@ export function cronToRefreshInterval(cronExpr: string): RefreshInterval {
   }
 
   return "1h";
+}
+
+
+/**
+ * 将 RefreshInterval 转为 cron 表达式
+ * 调度触发时刻与 cacher.timeBucket 的时间窗口边界一致，保证缓存 key 与执行频率对齐
+ */
+export function refreshIntervalToCron(interval: RefreshInterval): string {
+  const map: Record<RefreshInterval, string> = {
+    "1min": "* * * * *",
+    "5min": "*/5 * * * *",
+    "10min": "*/10 * * * *",
+    "30min": "*/30 * * * *",
+    "1h": "0 * * * *",
+    "6h": "0 */6 * * *",
+    "12h": "0 0,12 * * *",
+    "1day": "0 0 * * *",
+    "3day": "0 0 */3 * *",
+    "7day": "0 0 * * 0",
+  };
+  return map[interval];
 }
 
 

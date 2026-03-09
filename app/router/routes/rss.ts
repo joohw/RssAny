@@ -122,11 +122,10 @@ export function registerRssRoutes(app: Hono): void {
       const headless = headlessParam === "false" || headlessParam === "0" ? false : undefined;
       const lng = c.req.query("lng") ?? undefined;
       const httpId = "rss-" + createHash("sha256").update(url).digest("hex").slice(0, 16);
-      const { items } = await scheduler.enqueueWithResult(
+      const { items } = await scheduler.schedule(
         SOURCES_GROUP,
         httpId,
-        () => getItems(url, { cacheDir: CACHE_DIR, headless, writeDb: true, lng }),
-        {}
+        () => getItems(url, { cacheDir: CACHE_DIR, headless, writeDb: true, lng })
       );
       const xml = feedItemsToRssXml(items, url, lng);
       return c.body(xml, 200, {

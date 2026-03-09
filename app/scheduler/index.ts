@@ -1,4 +1,4 @@
-// 通用调度器：支持定时任务（间隔/cron）、重试与分组并发
+// 通用调度器：cron 定时任务、重试与分组并发
 
 import { CronExpressionParser } from "cron-parser";
 import { schedule as cronSchedule, validate as cronValidate } from "node-cron";
@@ -12,14 +12,18 @@ export type ScheduledTask = () => Promise<void>;
 
 /** 调度选项 */
 export interface ScheduleOptions {
+  /** cron 表达式；不填或空表示一次性任务 */
+  cron?: string;
   /** 失败时重试次数，默认 0 */
   retries?: number;
   /** 重试间隔（毫秒），默认 5000 */
   retryDelayMs?: number;
-  /** 所属分组，用于并发控制；不填则立即执行、无并发限制 */
-  group?: string;
-  /** 注册后是否立即执行一次（warmup），默认 false */
+  /** 分组并发数，首次使用该分组时生效，默认 10 */
+  concurrency?: number;
+  /** 定时任务：注册后是否立即执行一次，默认 false */
   runNow?: boolean;
+  /** 分组名（内部使用，由 schedule 注入） */
+  group?: string;
 }
 
 
@@ -33,10 +37,7 @@ export interface GroupConfig {
 /** 已注册任务 */
 interface RegisteredTask {
   id: string;
-  /** 间隔毫秒（cron 时为 0） */
-  intervalMs: number;
-  /** cron 表达式（仅当 intervalMs 为 0 时有效） */
-  cronExpr?: string;
+  cronExpr: string;
   task: ScheduledTask;
   options: ScheduleOptions;
   stop: () => void;
@@ -59,6 +60,7 @@ interface QueuedItem {
 const tasks = new Map<string, RegisteredTask>();
 const groups = new Map<string, { config: GroupConfig; running: number; queue: QueuedItem[]; completedCount: number }>();
 const DEFAULT_RETRY_DELAY_MS = 5000;
+const DEFAULT_GROUP_CONCURRENCY = 10;
 
 
 async function runWithRetry(
@@ -127,6 +129,7 @@ function enqueueAndProcess(
 ): void {
   const g = groups.get(group);
   if (!g) return;
+  g.queue = g.queue.filter((it) => it.id !== id);
   const item: QueuedItem = { id, task, options, resolve, resolveValue, rejectValue };
   if (priority) {
     g.queue.unshift(item);
@@ -168,81 +171,48 @@ function processGroupQueue(group: string): void {
 
 
 /**
- * 注册分组并设置并发数
+ * 调度任务：options.cron 有值时注册定时任务，否则一次性入队
  * @param group 分组名
- * @param concurrency 该组最大并发数
- */
-export function registerGroup(group: string, concurrency: number): void {
-  ensureGroup(group, concurrency);
-}
-
-
-/**
- * 注册定时任务
  * @param id 任务唯一标识
- * @param intervalOrCron 刷新间隔（毫秒）或 cron 表达式（如 "0 9 * * *" 每天 9:00）
  * @param task 异步任务函数
- * @param options 可选：retries、retryDelayMs、group、runNow
- * @returns 是否注册成功
+ * @param options cron 有值=定时任务，无值=一次性任务；可选 retries、retryDelayMs、concurrency、runNow
  */
-export function schedule(
+export function schedule(group: string, id: string, task: ScheduledTask, options: ScheduleOptions & { cron: string }): boolean;
+export function schedule<T>(group: string, id: string, task: () => Promise<T>, options?: ScheduleOptions): Promise<T>;
+export function schedule<T>(
+  group: string,
   id: string,
-  intervalOrCron: number | string,
-  task: ScheduledTask,
+  task: ScheduledTask | (() => Promise<T>),
   options: ScheduleOptions = {}
-): boolean {
-  unschedule(id);
+): boolean | Promise<T> {
+  const cronExpr = options.cron?.trim();
+  ensureGroup(group, options.concurrency ?? groups.get(group)?.config.concurrency ?? DEFAULT_GROUP_CONCURRENCY);
 
-  const group = options.group;
-  if (group) ensureGroup(group, groups.get(group)?.config.concurrency ?? 5);
-
-  let stop: () => void;
-  let intervalMs: number;
-  let cronExpr: string | undefined;
-
-  if (typeof intervalOrCron === "string") {
-    if (!cronValidate(intervalOrCron)) return false;
-    cronExpr = intervalOrCron;
-    const job = cronSchedule(intervalOrCron, () => {
+  if (cronExpr && cronValidate(cronExpr)) {
+    unschedule(id);
+    const optsWithGroup = { ...options, group };
+    const job = cronSchedule(cronExpr, () => {
       const reg = tasks.get(id);
       if (reg) reg.lastRunTime = Date.now();
-      if (group) {
-        enqueueAndProcess(group, id, task, options);
-      } else {
-        runWithRetry(task, options).catch(() => {});
-      }
+      enqueueAndProcess(group, id, task as ScheduledTask, optsWithGroup);
     });
-    stop = () => job.stop();
-    intervalMs = 0;
-  } else {
-    if (!intervalOrCron || intervalOrCron <= 0) return false;
-    const timer = setInterval(() => {
-      const reg = tasks.get(id);
-      if (reg) reg.lastRunTime = Date.now();
-      if (group) {
-        enqueueAndProcess(group, id, task, options);
-      } else {
-        runWithRetry(task, options).catch(() => {});
-      }
-    }, intervalOrCron);
-    stop = () => clearInterval(timer);
-    intervalMs = intervalOrCron;
+    tasks.set(id, {
+      id,
+      cronExpr,
+      task: task as ScheduledTask,
+      options: optsWithGroup,
+      stop: () => job.stop(),
+      lastRunTime: 0,
+    });
+    if (options.runNow) {
+      runNow(id, true).catch(() => {});
+    }
+    return true;
   }
 
-  tasks.set(id, {
-    id,
-    intervalMs,
-    cronExpr,
-    task,
-    options,
-    stop,
-    lastRunTime: 0,
+  return new Promise<T>((resolve, reject) => {
+    enqueueAndProcess(group, id, task as () => Promise<unknown>, { ...options, group }, undefined, false, resolve as (v: unknown) => void, reject);
   });
-
-  if (options.runNow) {
-    runNow(id, true).catch(() => {});
-  }
-  return true;
 }
 
 
@@ -287,19 +257,6 @@ export function runNow(id: string, priority = false): Promise<void> {
 
 
 /**
- * 立即执行一次任务（不等待下次定时）
- * 适用于未注册的临时任务，直接执行
- */
-export async function runWithRetryOnce(
-  _id: string,
-  task: ScheduledTask,
-  options: ScheduleOptions = {}
-): Promise<void> {
-  await runWithRetry(task, options);
-}
-
-
-/**
  * 清空所有任务（含各分组队列中的待执行项）
  */
 export function clearAll(): void {
@@ -310,23 +267,6 @@ export function clearAll(): void {
   for (const g of groups.values()) {
     g.queue.length = 0;
   }
-}
-
-
-/**
- * 批量执行任务（用于 warmUp），限制并发
- * @param ids 要执行的任务 id 列表，空则执行全部
- * @param concurrency 并发数，默认 5
- */
-export async function warmUp(ids: string[] = [], concurrency = 5): Promise<void> {
-  const toRun = ids.length > 0 ? ids.filter((id) => tasks.has(id)) : [...tasks.keys()];
-  const runBatch = async (start: number): Promise<void> => {
-    if (start >= toRun.length) return;
-    const batch = toRun.slice(start, start + concurrency);
-    await Promise.all(batch.map((id) => runNow(id).catch(() => {})));
-    await runBatch(start + batch.length);
-  };
-  await runBatch(0);
 }
 
 
@@ -361,23 +301,14 @@ export interface GroupStats {
 
 
 function getNextRunForTask(reg: RegisteredTask): number {
-  const now = Date.now();
-  if (reg.intervalMs > 0) {
-    const base = reg.lastRunTime || now;
-    return base + reg.intervalMs;
+  try {
+    const expr = CronExpressionParser.parse(reg.cronExpr, {
+      currentDate: reg.lastRunTime ? new Date(reg.lastRunTime) : new Date(),
+    });
+    return expr.next().getTime();
+  } catch {
+    return -1;
   }
-  if (reg.cronExpr) {
-    try {
-      const expr = CronExpressionParser.parse(reg.cronExpr, {
-        currentDate: reg.lastRunTime ? new Date(reg.lastRunTime) : new Date(),
-      });
-      const next = expr.next();
-      return next.getTime();
-    } catch {
-      return -1;
-    }
-  }
-  return -1;
 }
 
 
@@ -411,39 +342,3 @@ export function getGroupStats(): Record<string, GroupStats> {
 }
 
 
-/**
- * 将一次性任务入组执行（不注册定时，仅执行一次）
- * 用于 enrich 等非周期任务，复用分组并发与重试
- * @param group 分组名，需已 registerGroup
- * @param id 任务唯一 id（用于去重，同 id 可覆盖队内未执行的）
- * @param task 任务函数
- * @param options 可选 retries、retryDelayMs
- * @returns Promise，任务完成时 resolve
- */
-export function enqueueOneOff(
-  group: string,
-  id: string,
-  task: ScheduledTask,
-  options: ScheduleOptions = {}
-): Promise<void> {
-  ensureGroup(group, groups.get(group)?.config.concurrency ?? 2);
-  return new Promise<void>((resolve) => {
-    enqueueAndProcess(group, id, task, options, resolve, false);
-  });
-}
-
-
-/**
- * 将一次性任务入组执行并返回结果（用于 HTTP 路由等需要获取返回值的场景）
- */
-export function enqueueWithResult<T>(
-  group: string,
-  id: string,
-  task: () => Promise<T>,
-  options: ScheduleOptions = {}
-): Promise<T> {
-  ensureGroup(group, groups.get(group)?.config.concurrency ?? 2);
-  return new Promise<T>((resolve, reject) => {
-    enqueueAndProcess(group, id, task, options, undefined, true, resolve as (v: unknown) => void, reject);
-  });
-}
