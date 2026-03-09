@@ -684,11 +684,13 @@ export async function queryLogs(opts: {
 }
 
 
-/** 话题配置：title 必选，tags 用于匹配，prompt 供 Agent 参考，refresh 为报告刷新周期（天） */
+/** 话题配置：title 必选，tags 用于匹配，prompt 供 Agent 参考，description 仅用于展示（不传 AI），refresh 为报告刷新周期（天） */
 export interface Topic {
   title: string;
   tags?: string[];
   prompt?: string;
+  /** 展示用描述，不提供给 AI；阅读时显示此字段而非 prompt */
+  description?: string;
   refresh?: number;
 }
 
@@ -709,9 +711,10 @@ export async function getTopics(): Promise<Topic[]> {
         ? (t as { tags: unknown[] }).tags.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
         : [title];
       const prompt = typeof (t as { prompt?: unknown }).prompt === "string" ? (t as { prompt: string }).prompt : "";
+      const description = typeof (t as { description?: unknown }).description === "string" ? (t as { description: string }).description : "";
       const r = (t as { refresh?: unknown }).refresh;
       const refresh = typeof r === "number" && !Number.isNaN(r) && r >= 1 ? Math.floor(r) : 1;
-      topics.push({ title, tags, prompt, refresh });
+      topics.push({ title, tags, prompt, description, refresh });
     }
     return topics;
   } catch {
@@ -729,6 +732,7 @@ export async function saveTopics(topics: Topic[]): Promise<void> {
         ? t.tags.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim())
         : [t.title.trim()],
       prompt: typeof t.prompt === "string" ? t.prompt : "",
+      description: typeof t.description === "string" ? t.description : "",
       refresh: typeof t.refresh === "number" && t.refresh >= 1 ? Math.floor(t.refresh) : 1,
     }));
   await writeFile(TOPICS_CONFIG_PATH, JSON.stringify({ topics: list }, null, 2), "utf-8");

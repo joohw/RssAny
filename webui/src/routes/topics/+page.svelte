@@ -7,6 +7,7 @@
     title: string;
     tags?: string[];
     prompt?: string;
+    description?: string;
     refresh?: number;
     count: number;
     hotness: number;
@@ -18,6 +19,7 @@
     title: string;
     tags: string[];
     prompt: string;
+    description: string;
     refresh: number;
     count: number;
     hotness: number;
@@ -33,6 +35,7 @@
   let newTitle = '';
   let newTags = '';
   let newPrompt = '';
+  let newDescription = '';
   let newRefresh = 1;
   let saving = false;
   let saveMsg = '';
@@ -48,6 +51,7 @@
         title: s.title,
         tags: s.tags ?? [s.title],
         prompt: s.prompt ?? '',
+        description: s.description ?? '',
         refresh: s.refresh ?? 1,
         count: s.count,
         hotness: s.hotness,
@@ -61,16 +65,17 @@
     }
   }
 
-  function getTopicsPayload(): Array<{ title: string; tags: string[]; prompt: string; refresh: number }> {
+  function getTopicsPayload(): Array<{ title: string; tags: string[]; prompt: string; description: string; refresh: number }> {
     return cards.map((c) => ({
       title: c.title,
       tags: c.tags.length ? c.tags : [c.title],
       prompt: c.prompt,
+      description: c.description,
       refresh: c.refresh,
     }));
   }
 
-  async function save(topics: Array<{ title: string; tags: string[]; prompt: string; refresh: number }>) {
+  async function save(topics: Array<{ title: string; tags: string[]; prompt: string; description: string; refresh: number }>) {
     saving = true;
     saveMsg = '';
     try {
@@ -105,6 +110,7 @@
       title,
       tags,
       prompt: newPrompt.trim(),
+      description: newDescription.trim(),
       refresh: newRefresh,
     };
     closeAddModal();
@@ -116,6 +122,7 @@
     newTitle = card.title;
     newTags = card.tags.join(', ');
     newPrompt = card.prompt;
+    newDescription = card.description;
     newRefresh = card.refresh;
     showEditForm = true;
     contextMenu = null;
@@ -135,17 +142,17 @@
     }
     const next = cards.map((c) =>
       c.title === editTarget!.title
-        ? { ...c, title, tags, prompt: newPrompt.trim(), refresh: newRefresh }
+        ? { ...c, title, tags, prompt: newPrompt.trim(), description: newDescription.trim(), refresh: newRefresh }
         : c
     );
     closeEditModal();
-    save(next.map((c) => ({ title: c.title, tags: c.tags, prompt: c.prompt, refresh: c.refresh })));
+    save(next.map((c) => ({ title: c.title, tags: c.tags, prompt: c.prompt, description: c.description, refresh: c.refresh })));
   }
 
   function removeTopic(title: string) {
     if (saving) return;
     const next = cards.filter((c) => c.title !== title);
-    save(next.map((c) => ({ title: c.title, tags: c.tags, prompt: c.prompt, refresh: c.refresh })));
+    save(next.map((c) => ({ title: c.title, tags: c.tags, prompt: c.prompt, description: c.description, refresh: c.refresh })));
     contextMenu = null;
   }
 
@@ -165,6 +172,7 @@
     newTitle = '';
     newTags = '';
     newPrompt = '';
+    newDescription = '';
     newRefresh = 1;
   }
 
@@ -174,6 +182,7 @@
     newTitle = '';
     newTags = '';
     newPrompt = '';
+    newDescription = '';
     newRefresh = 1;
   }
 
@@ -206,7 +215,7 @@
     <div class="feed-header">
       <div class="header-left">
         <h2>话题</h2>
-        <p class="sub">话题包含 title（必填）、tags（关键词）、prompt（描述），refresh 默认 1 天。新内容经 pipeline 打标签后会自动聚合到对应话题，并生成追踪报告。</p>
+        <p class="sub">话题包含 title（必填）、tags（关键词）、描述（展示用）、AI 提示词（报告生成），refresh 默认 1 天。新内容经 pipeline 打标签后会自动聚合到对应话题，并生成追踪报告。</p>
       </div>
       <div class="header-right">
         {#if saveMsg}
@@ -215,7 +224,7 @@
         <button
           type="button"
           class="add-btn"
-          on:click={() => { showAddForm = true; newTitle = ''; newTags = ''; newPrompt = ''; newRefresh = 1; }}
+          on:click={() => { showAddForm = true; newTitle = ''; newTags = ''; newPrompt = ''; newDescription = ''; newRefresh = 1; }}
           disabled={loading || saving}
         >
           + 添加话题
@@ -243,8 +252,8 @@
           >
             <div class="card-main">
               <span class="card-label">{card.title}</span>
-              {#if card.prompt}
-                <span class="card-prompt">{card.prompt}</span>
+              {#if card.description}
+                <span class="card-prompt">{card.description}</span>
               {/if}
               {#if card.tags.length > 0}
                 <div class="card-tags-wrap">
@@ -300,7 +309,17 @@
           />
         </div>
         <div class="form-row">
-          <label for="new-prompt">描述（prompt）</label>
+          <label for="new-description">描述</label>
+          <p class="field-hint">卡片上展示的简短概念，便于阅读时识别，不提供给 AI。</p>
+          <input
+            id="new-description"
+            type="text"
+            placeholder="如：A2A 协议与多智能体通信"
+            bind:value={newDescription}
+          />
+        </div>
+        <div class="form-row">
+          <label for="new-prompt">AI 提示词</label>
           <p class="field-hint">主导报告生成逻辑，供 Agent 参考。若有 tags 会作为搜索提示插入；无 tags 时 agent 可自行选择获取方式（如日报用 get_channel_feeds 获取全部文章）。</p>
           <textarea
             id="new-prompt"
@@ -387,7 +406,17 @@
           />
         </div>
         <div class="form-row">
-          <label for="edit-prompt">描述（prompt）</label>
+          <label for="edit-description">描述</label>
+          <p class="field-hint">卡片上展示的简短概念，便于阅读时识别，不提供给 AI。</p>
+          <input
+            id="edit-description"
+            type="text"
+            placeholder="如：A2A 协议与多智能体通信"
+            bind:value={newDescription}
+          />
+        </div>
+        <div class="form-row">
+          <label for="edit-prompt">AI 提示词</label>
           <p class="field-hint">主导报告生成逻辑，供 Agent 参考。</p>
           <textarea
             id="edit-prompt"

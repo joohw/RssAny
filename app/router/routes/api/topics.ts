@@ -23,6 +23,7 @@ export function registerTopicsRoutes(app: Hono): void {
         title: s.title,
         tags: s.tags,
         prompt: s.prompt,
+        description: s.description,
         refresh: s.refresh ?? 1,
         count: s.count,
         hotness: s.hotness,
@@ -33,7 +34,7 @@ export function registerTopicsRoutes(app: Hono): void {
 
   app.put("/api/topics", async (c) => {
     try {
-      const body = await c.req.json<{ topics?: Array<{ title: string; tags?: string[]; prompt?: string; refresh?: number }> }>();
+      const body = await c.req.json<{ topics?: Array<{ title: string; tags?: string[]; prompt?: string; description?: string; refresh?: number }> }>();
       const list = Array.isArray(body?.topics) ? body.topics : [];
       const topics = list
         .filter((t) => t && typeof t.title === "string" && t.title.trim())
@@ -41,6 +42,7 @@ export function registerTopicsRoutes(app: Hono): void {
           title: t.title.trim(),
           tags: Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.title.trim()],
           prompt: typeof t.prompt === "string" ? t.prompt : "",
+          description: typeof t.description === "string" ? t.description : "",
           refresh: typeof t.refresh === "number" && t.refresh >= 1 ? Math.floor(t.refresh) : 1,
         }));
       await saveTopics(topics);
@@ -52,6 +54,7 @@ export function registerTopicsRoutes(app: Hono): void {
           title: s.title,
           tags: s.tags,
           prompt: s.prompt,
+          description: s.description,
           refresh: s.refresh ?? 1,
           count: s.count,
           hotness: s.hotness,
