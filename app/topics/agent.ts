@@ -28,7 +28,8 @@ function buildTaskPrompt(
   since.setDate(since.getDate() - periodDays);
   const sinceStr = since.toISOString().slice(0, 10);
   const untilStr = until.toISOString().slice(0, 10);
-  const tagsStr = (opts?.searchTags?.length ? opts.searchTags : [topic]).join(",");
+  const hasTags = opts?.searchTags && opts.searchTags.length > 0;
+  const tagsStr = hasTags ? opts!.searchTags!.join(",") : "";
   const promptHint = opts?.prompt?.trim() ? `\n\n**用户对该话题的说明**：${opts.prompt}` : "";
 
   const prevSection = previousArticle
@@ -46,10 +47,13 @@ ${previousArticle}
 `
     : "";
 
+  const fetchStep = hasTags
+    ? `1. 调用 get_channel_feeds（tags="${tagsStr}", since="${sinceStr}", until="${untilStr}", limit=200）或 search_feeds（tags="${tagsStr}", since="${sinceStr}", until="${untilStr}"）获取该话题下的近期文章`
+    : `1. 调用 get_channel_feeds（since="${sinceStr}", until="${untilStr}", limit=200）获取该时间范围内的全部文章`;
   return `请为话题「${topic}」撰写一份追踪报告，时间范围为最近 ${periodDays} 天（${sinceStr} 至 ${untilStr}）。${promptHint}${prevSection}
 
 执行步骤：
-1. 调用 get_channel_feeds（tags="${tagsStr}", since="${sinceStr}", until="${untilStr}", limit=200）或 search_feeds（tags="${tagsStr}", since="${sinceStr}", until="${untilStr}"）获取该话题下的近期文章
+${fetchStep}
 2. 根据标题和摘要，判断哪些内容影响力大、值得深读（通常 5-8 条）
 3. 对每条重要内容调用 get_feed_detail 获取完整正文（最多调用 8 次）
 4. 基于完整正文输出结构化报告${previousArticle ? "，并体现与上期相比的变化" : ""}
@@ -86,71 +90,6 @@ ${previousArticle}
 }
 
 
-/** 日期格式 YYYY-MM-DD */
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-export function isDateKey(key: string): boolean {
-  return DATE_RE.test(key.trim());
-}
-
-/** 日报 prompt：按日期筛选 */
-function buildDailyPrompt(date: string, previousArticle?: string | null): string {
-  const next = new Date(date);
-  next.setDate(next.getDate() + 1);
-  const until = next.toISOString().slice(0, 10);
-
-  const prevSection = previousArticle
-    ? `
-
-## 参考：上一期日报（用于体现变化）
-
-以下是上一期的日报内容。新日报需体现「最近的变化」：与上期相比，哪些热点延续、哪些消退、哪些是新出现的。
-
-\`\`\`
-${previousArticle}
-\`\`\`
-
-请在生成今日日报时，结合上期内容，突出今日的新变化与延续性热点。
-`
-    : "";
-
-  return `请生成 ${date} 的行业热度日报。${prevSection}
-
-执行步骤：
-1. 调用 get_channel_feeds（since="${date}", until="${until}", limit=200）获取当日全部文章
-2. 根据标题和摘要，判断哪些新闻影响力大、值得深读（通常 5-8 条）
-3. 对每条重要新闻调用 get_feed_detail 获取完整正文（最多调用 8 次）
-4. 基于完整正文输出结构化日报${previousArticle ? "，并体现与上期相比的变化" : ""}
-
-日报输出格式（严格遵循）：
-
-## 行业热度榜
-
-按热度降序排列，每条包含：
-
-### {排名}. [新闻标题](文章URL)
-
-**相关度**：{0-10分} **关键词**：{2-4 个核心关键词，逗号分隔}
-
-{一段话：发生了什么（时间+主体+事件）→ 影响意义 → 为什么值得关注}
-
-**延伸阅读**：[来源名称](信源URL)
-
----
-
-## 频道速览
-
-按频道分组列出其余文章，每条格式：
-- [标题](文章URL)（[来源](信源URL)）一句话要点
-
----
-
-注意：
-- 所有 URL 完整保留，不得修改或省略
-- 行文使用中文，专有名词保留原文
-- 直接输出 Markdown，不要加前言或结尾说明`;
-}
-
 function createDigestAgent(): Agent {
   const baseModel = getModel("openai", "gpt-4o-mini");
   const baseUrl = process.env.OPENAI_BASE_URL || baseModel.baseUrl;
@@ -174,8 +113,7 @@ function createDigestAgent(): Agent {
 }
 
 /**
- * 用 Agent 生成指定 key 的报告正文
- * key 为日期时：日报；否则为话题追踪
+ * 用 Agent 生成指定 key 的报告正文（日报、话题均走同一套 buildTaskPrompt）
  */
 export async function runDigestAgent(
   key: string,
@@ -189,12 +127,10 @@ export async function runDigestAgent(
   const agent = createDigestAgent();
   let output = "";
 
-  const prompt = isDateKey(key)
-    ? buildDailyPrompt(key, options.previousArticle)
-    : buildTaskPrompt(key, options.periodDays ?? 1, options.previousArticle, {
-        searchTags: options.searchTags,
-        prompt: options.prompt,
-      });
+  const prompt = buildTaskPrompt(key, options.periodDays ?? 1, options.previousArticle, {
+    searchTags: options.searchTags,
+    prompt: options.prompt,
+  });
 
   return new Promise<string>((resolve, reject) => {
     agent.subscribe((e) => {

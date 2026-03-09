@@ -147,4 +147,29 @@ export async function initUserDir(): Promise<void> {
       logger.warn("config", "tags.json 迁移至 topics.json 失败", { err: err instanceof Error ? err.message : String(err) });
     }
   }
+
+  // 确保 topics.json 包含「日报」话题（合并原独立日报功能）
+  const DAILY_TOPIC = {
+    title: "日报",
+    tags: [] as string[],
+    prompt: `按当日全部文章生成行业热度日报。执行步骤：1. 调用 get_channel_feeds（since=当日, until=次日, limit=200）获取当日全部文章；2. 根据标题和摘要判断影响力大的新闻（通常 5-8 条）；3. 对每条重要新闻调用 get_feed_detail 获取完整正文（最多 8 次）；4. 基于完整正文输出结构化日报。输出格式：行业热度榜（按热度降序，每条含标题、相关度、关键词、要点、来源）、频道速览（按频道分组列出其余文章）。`,
+    refresh: 1,
+  };
+  try {
+    let topics: Array<{ title: string; tags?: string[]; prompt?: string; refresh?: number }> = [];
+    try {
+      const raw = await readFile(TOPICS_CONFIG_PATH, "utf-8");
+      const parsed = JSON.parse(raw) as { topics?: Array<{ title: string; tags?: string[]; prompt?: string; refresh?: number }> };
+      topics = Array.isArray(parsed?.topics) ? parsed.topics : [];
+    } catch {
+      /* 文件不存在或解析失败，使用空列表 */
+    }
+    if (!topics.some((t) => t?.title === "日报")) {
+      topics = [DAILY_TOPIC, ...topics];
+      await writeFile(TOPICS_CONFIG_PATH, JSON.stringify({ topics }, null, 2), "utf-8");
+      logger.info("config", "已添加日报话题至 topics.json");
+    }
+  } catch (err) {
+    logger.warn("config", "添加日报话题失败", { err: err instanceof Error ? err.message : String(err) });
+  }
 }

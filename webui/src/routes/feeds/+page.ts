@@ -1,12 +1,12 @@
 import { redirect } from '@sveltejs/kit';
 
-export function load({ url }) {
+export function load({ url }: { url: URL }) {
   const params = url.searchParams;
-  const hasAny = params.has('channel') || params.has('url') || params.has('sourceUrl') || params.has('author') || params.has('search') || params.has('q') || params.has('tags');
-  if (!hasAny) {
-    const days = params.get('days');
-    const suffix = days ? `&days=${days}` : '';
-    throw redirect(302, '/feeds?channel=all' + suffix);
+  const hasChannel = params.has('channel');
+  if (!hasChannel) {
+    const next = new URLSearchParams(params);
+    next.set('channel', 'all');
+    throw redirect(302, '/feeds?' + next.toString());
   }
   return {};
 }

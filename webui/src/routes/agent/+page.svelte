@@ -133,6 +133,7 @@
   let streamContent = '';
   let streamToolCalls: ToolCall[] = [];
   let error = '';
+  let lastUsage: TokenUsage | undefined;
 
   async function send(promptText?: string) {
     const prompt = (promptText ?? input.trim()).trim();
@@ -146,7 +147,7 @@
     streamContent = '';
     streamToolCalls = [];
     error = '';
-    let lastUsage: TokenUsage | undefined;
+    lastUsage = undefined;
 
     try {
       const res = await fetch('/api/chat/stream', {

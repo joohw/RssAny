@@ -239,6 +239,15 @@ export function unschedule(id: string): void {
 
 
 /**
+ * 取消指定分组下的所有定时任务（不清理队列，用于 reschedule 前仅移除本组任务）
+ */
+export function unscheduleGroup(group: string): void {
+  const ids = [...tasks.entries()].filter(([, reg]) => reg.options.group === group).map(([id]) => id);
+  for (const id of ids) unschedule(id);
+}
+
+
+/**
  * 立即执行一次任务（不等待下次定时）
  * @param id 任务 id
  * @param priority 有分组时，true 表示插入队首优先执行，默认 false 插入队尾

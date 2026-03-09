@@ -41,7 +41,7 @@ export const SOURCES_GROUP = "sources";
 
 /** 读取 sources.json 扁平列表并重建定时器（每个信源按 refresh 独立调度） */
 async function rescheduleSources(cacheDir: string): Promise<void> {
-  scheduler.clearAll();
+  scheduler.unscheduleGroup(SOURCES_GROUP);
   scheduler.registerGroup(SOURCES_GROUP, SOURCES_CONCURRENCY);
   let sources: Awaited<ReturnType<typeof getAllSources>>;
   try {

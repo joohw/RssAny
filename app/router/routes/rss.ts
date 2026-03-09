@@ -59,10 +59,23 @@ export function registerRssRoutes(app: Hono): void {
     let sourceUrls: string[] | undefined;
     if (channelId) {
       const channels = await getAllChannelConfigs();
-      sourceUrls =
+      const channelRefs =
         channelId === "all" || !channelId
           ? collectAllSourceRefs(channels)
           : (channels.find((x) => x.id === channelId)?.sourceRefs ?? []);
+      if (sourceUrl) {
+        sourceUrls = channelRefs.filter((s) => s === sourceUrl);
+      } else {
+        sourceUrls = channelRefs;
+      }
+    }
+
+    if (sourceUrls?.length === 0) {
+      const xml = feedItemsToRssXml([], new URL(c.req.url).href, lng, {
+        channelTitle: title ?? "RSS 订阅",
+        channelDesc: "无匹配条目",
+      });
+      return c.body(xml, 200, { "Content-Type": "application/rss+xml; charset=utf-8" });
     }
 
     const result = await queryItems({

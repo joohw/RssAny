@@ -3,7 +3,7 @@
 import type { Hono } from "hono";
 import { saveTopics, getTopics, getTopicStats, getTagStats, getSuggestedTags } from "../../../db/index.js";
 import { CACHE_DIR } from "../../../config/paths.js";
-import { readDigest, generateDigest } from "../../../topics/index.js";
+import { readDigest, listDigestDates, generateDigest } from "../../../topics/index.js";
 
 export function registerTopicsRoutes(app: Hono): void {
   app.get("/api/topics", async (c) => {
@@ -102,14 +102,23 @@ export function registerTopicsRoutes(app: Hono): void {
     }
   });
 
+  app.get("/api/topics/:key/dates", async (c) => {
+    const key = decodeURIComponent(c.req.param("key") ?? "").trim();
+    if (!key) return c.json({ error: "key 参数缺失" }, 400);
+    const dates = await listDigestDates(CACHE_DIR, key);
+    const latest = dates[0] ?? null;
+    return c.json({ key, dates, latest });
+  });
+
   app.get("/api/topics/:key", async (c) => {
     const key = decodeURIComponent(c.req.param("key") ?? "").trim();
     if (!key) return c.json({ error: "key 参数缺失" }, 400);
-    const content = await readDigest(CACHE_DIR, key);
-    if (content === null) {
-      return c.json({ key, content: null, exists: false });
+    const date = c.req.query("date");
+    const result = await readDigest(CACHE_DIR, key, date);
+    if (result === null) {
+      return c.json({ key, content: null, date: null, exists: false });
     }
-    return c.json({ key, content, exists: true });
+    return c.json({ key, content: result.content, date: result.date, exists: true });
   });
 
   app.post("/api/topics/:key/generate", async (c) => {

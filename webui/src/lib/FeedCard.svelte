@@ -57,7 +57,7 @@
   {#if author}
     <div class="item-author-top">
       {#if authorHref}
-        <a class="item-author-link" href={authorHref} target="_blank" rel="noopener" title="订阅该作者 RSS">{author}</a>
+        <a class="item-author-link" href={authorHref} title="筛选该作者">{author}</a>
       {:else}
         {author}
       {/if}

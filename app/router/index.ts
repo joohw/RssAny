@@ -7,7 +7,6 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { initSources as initSites } from "../scraper/sources/index.js";
 import { initScheduler } from "../scraper/scheduler/index.js";
-import { initDailyScheduler } from "../daily/scheduler.js";
 import { initTopicsScheduler } from "../topics/scheduler.js";
 import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CACHE_DIR } from "../config/paths.js";
 import { logger } from "../core/logger/index.js";
@@ -66,8 +65,7 @@ async function main(): Promise<void> {
   await initUserDir();
   await initSites();
   await initScheduler(CACHE_DIR);
-  initDailyScheduler(CACHE_DIR);
-  initTopicsScheduler(CACHE_DIR);
+  await initTopicsScheduler(CACHE_DIR);
   const app = createApp();
   serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" });
   console.log(`API 服务已启动 http://127.0.0.1:${PORT}/`);

@@ -7,7 +7,6 @@
 
   const navLinks: NavLink[] = [
     { href: '/feeds?channel=all', label: 'Feeds' },
-    { href: '/daily', label: 'Daily' },
     { href: '/tags', label: 'Topics' },
     { href: '/sources', label: 'Sources' },
     { href: '/agent', label: 'Ask' },

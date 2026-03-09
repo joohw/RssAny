@@ -71,10 +71,19 @@ export function registerItemsRoutes(app: Hono): void {
     let sourceUrls: string[] | undefined;
     if (channelId) {
       const channels = await getAllChannelConfigs();
-      sourceUrls =
+      const channelRefs =
         channelId === "all" || !channelId
           ? collectAllSourceRefs(channels)
           : (channels.find((x) => x.id === channelId)?.sourceRefs ?? []);
+      if (sourceUrl) {
+        sourceUrls = channelRefs.filter((s) => s === sourceUrl);
+      } else {
+        sourceUrls = channelRefs;
+      }
+    }
+
+    if (sourceUrls?.length === 0) {
+      return c.json({ items: [], total: 0, hasMore: false });
     }
 
     const result = await queryItems({

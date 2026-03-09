@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { goto, beforeNavigate } from '$app/navigation';
   import FeedCard from '$lib/FeedCard.svelte';
+  import TagSelectDialog from '$lib/TagSelectDialog.svelte';
 
   interface FeedItem {
     guid?: string;
@@ -53,12 +54,11 @@
   })();
 
   $: hasFilters = !!(filters.channel || filters.url || filters.author || filters.search || filters.tags);
-  $: isChannelMode = !!filters.channel;
 
   let channels: { id: string; title: string }[] = [];
 
-  /** 频道模式下预加载频道列表 */
-  $: if (isChannelMode && channels.length === 0 && typeof window !== 'undefined') {
+  /** 始终预加载频道列表（用于混合筛选） */
+  $: if (channels.length === 0 && typeof window !== 'undefined') {
     fetch('/api/channels').then((r) => r.json()).then((list: { id: string; title?: string }[]) => {
       channels = Array.isArray(list) ? list.map((s) => ({ id: s.id, title: s.title || s.id })) : [];
     });
@@ -82,9 +82,38 @@
     return '/api/items?' + p.toString();
   }
 
-  function feedsHref(ch: string, withDays?: number): string {
-    const base = `/feeds?channel=${encodeURIComponent(ch)}`;
-    return withDays ? `${base}&days=${withDays}` : base;
+  /** 切换频道链接，保留其他筛选参数以支持混合筛选；overrides 可覆盖 url/author/tags */
+  function feedsHref(ch: string, withDays?: number, overrides?: { url?: string; author?: string; tags?: string }): string {
+    const p = new URLSearchParams();
+    p.set('channel', ch);
+    const url = overrides?.url ?? filters.url;
+    const author = overrides?.author ?? filters.author;
+    const tagsVal = overrides?.tags ?? filters.tags;
+    if (url) p.set('url', url);
+    if (author) p.set('author', author);
+    if (filters.search) p.set('search', filters.search);
+    if (tagsVal) p.set('tags', tagsVal);
+    const daysVal = withDays ?? filters.days;
+    if (daysVal) p.set('days', String(daysVal));
+    return '/feeds?' + p.toString();
+  }
+
+  let showTagDialog = false;
+
+  function onTagSelect(tag: string) {
+    goto(feedsHref(filters.channel || 'all', undefined, { tags: tag }), { replaceState: false });
+  }
+
+  /** 移除指定筛选后的 URL（用于取消筛选） */
+  function clearFilterHref(omit: 'url' | 'author' | 'search' | 'tags'): string {
+    const p = new URLSearchParams();
+    p.set('channel', filters.channel || 'all');
+    if (omit !== 'url' && filters.url) p.set('url', filters.url);
+    if (omit !== 'author' && filters.author) p.set('author', filters.author);
+    if (omit !== 'search' && filters.search) p.set('search', filters.search);
+    if (omit !== 'tags' && filters.tags) p.set('tags', filters.tags);
+    if (filters.days) p.set('days', String(filters.days));
+    return '/feeds?' + p.toString();
   }
 
   function mapDbItems(raw: unknown): FeedItem[] {
@@ -240,22 +269,63 @@
   <title>Feeds - RssAny</title>
 </svelte:head>
 
+<svelte:window on:keydown={(e) => { if (e.key === 'Escape' && showTagDialog) showTagDialog = false; }} />
+
 <div class="feed-wrap">
   <div class="feed-col">
-    {#if isChannelMode && channels.length > 0}
+    {#if filters.channel || channels.length > 0 || filters.url || filters.author || filters.search || filters.tags}
       <div class="feed-filter-bar">
-        <div class="filter-chips">
-          <a class="filter-chip" class:active={filters.channel === 'all'} href={feedsHref('all', filters.days)}>全部</a>
-          {#each channels as ch}
-            <a class="filter-chip" class:active={filters.channel === ch.id} href={feedsHref(ch.id, filters.days)}>{ch.title}</a>
-          {/each}
-        </div>
+        {#if channels.length > 0}
+          <div class="filter-chips">
+            <a class="filter-chip" class:active={filters.channel === 'all'} href={feedsHref('all', filters.days)}>全部</a>
+            {#each channels as ch}
+              <a class="filter-chip" class:active={filters.channel === ch.id} href={feedsHref(ch.id, filters.days)}>{ch.title}</a>
+            {/each}
+          </div>
+        {/if}
+        {#if filters.url || filters.author || filters.search || filters.tags}
+          <div class="filter-tags">
+            {#if filters.url}
+              <a class="filter-tag" href={clearFilterHref('url')} title="取消信源筛选">
+                <span>信源: {extractSource(filters.url)}</span>
+                <span class="filter-tag-x">×</span>
+              </a>
+            {/if}
+            {#if filters.author}
+              <a class="filter-tag" href={clearFilterHref('author')} title="取消作者筛选">
+                <span>作者: {filters.author}</span>
+                <span class="filter-tag-x">×</span>
+              </a>
+            {/if}
+            {#if filters.search}
+              <a class="filter-tag" href={clearFilterHref('search')} title="取消搜索筛选">
+                <span>搜索: {filters.search}</span>
+                <span class="filter-tag-x">×</span>
+              </a>
+            {/if}
+            {#if filters.tags}
+              <a class="filter-tag" href={clearFilterHref('tags')} title="取消标签筛选">
+                <span>标签: {filters.tags}</span>
+                <span class="filter-tag-x">×</span>
+              </a>
+            {/if}
+          </div>
+        {/if}
+        <button type="button" class="filter-tag-btn" on:click={() => (showTagDialog = true)} title="选择标签筛选">
+          标签
+        </button>
         <label class="filter-today">
           <input type="checkbox" checked={!!filters.days} on:change={toggleToday} />
           只看今日
         </label>
       </div>
     {/if}
+
+    <TagSelectDialog
+      open={showTagDialog}
+      onClose={() => (showTagDialog = false)}
+      onSelect={onTagSelect}
+    />
 
     <div class="feed-list" bind:this={listEl} on:scroll={onListScroll}>
       {#if !hasFilters}
@@ -275,8 +345,8 @@
             author={item.author}
             pubDate={item.pubDate}
             source={item._source ?? (filters.url ? extractSource(filters.url) : undefined)}
-            sourceHref={item._sourceRef ? `/feeds?url=${encodeURIComponent(item._sourceRef)}` : (filters.url ? `/feeds?url=${encodeURIComponent(filters.url)}` : undefined)}
-            authorHref={item.author ? `/feeds?author=${encodeURIComponent(item.author.split(',')[0]?.trim() || item.author)}` : undefined}
+            sourceHref={item._sourceRef ? feedsHref(filters.channel || 'all', undefined, { url: item._sourceRef }) : (filters.url ? feedsHref(filters.channel || 'all', undefined, { url: filters.url }) : undefined)}
+            authorHref={item.author ? feedsHref(filters.channel || 'all', undefined, { author: item.author.split(',')[0]?.trim() || item.author }) : undefined}
             guid={item.guid}
             onDelete={handleDeleteItem}
           />
@@ -331,7 +401,8 @@
   .feed-filter-bar {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.6rem 1rem;
     padding: 0.5rem 1.25rem;
     border-bottom: 1px solid #f0f0f0;
     flex-shrink: 0;
@@ -340,6 +411,33 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
+  }
+  .filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .filter-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    color: #555;
+    background: #e8f4fd;
+    border-radius: 4px;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .filter-tag:hover {
+    background: #d0e8f7;
+    color: #333;
+  }
+  .filter-tag-x {
+    font-size: 1rem;
+    line-height: 1;
+    opacity: 0.7;
   }
   .filter-chip {
     padding: 0.3rem 0.7rem;
@@ -352,6 +450,20 @@
   }
   .filter-chip:hover { color: #111; background: #eee; }
   .filter-chip.active { color: #fff; background: #111; }
+  .filter-tag-btn {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    color: #666;
+    background: #f5f5f5;
+    border: 1px solid #e5e7eb;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .filter-tag-btn:hover {
+    background: #eee;
+    color: #111;
+  }
   .filter-today {
     display: flex;
     align-items: center;

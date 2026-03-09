@@ -1,6 +1,12 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { marked } from 'marked';
+  import { fetchJson } from '$lib/fetchJson.js';
+
+  const PENDING_KEY = 'topic-generate-pending';
+  let generateAborted = false;
+  onDestroy(() => { generateAborted = true; });
 
   marked.setOptions({ breaks: true, gfm: true });
 
@@ -21,6 +27,8 @@
 
   $: topic = decodeURIComponent($page.params.topic ?? '');
 
+  let dates: string[] = [];
+  let currentDate = '';
   let content: string | null = null;
   let html = '';
   let loading = true;
@@ -28,16 +36,26 @@
   let generating = false;
   let generateError = '';
 
-  async function load() {
+  async function fetchDates(): Promise<string[]> {
+    if (!topic) return [];
+    const data = await fetchJson<{ dates: string[] }>(
+      `/api/topics/${encodeURIComponent(topic)}/dates`
+    );
+    return data?.dates ?? [];
+  }
+
+  async function loadContent(date: string) {
     if (!topic) return;
     loading = true;
     loadError = '';
     content = null;
     html = '';
     try {
-      const res = await fetch(`/api/topics/${encodeURIComponent(topic)}`);
-      const data = (await res.json()) as { topic: string; content: string | null; exists: boolean };
-      content = data.content;
+      const data = await fetchJson<{ content: string | null; date: string | null }>(
+        `/api/topics/${encodeURIComponent(topic)}?date=${encodeURIComponent(date)}`
+      );
+      content = data?.content ?? null;
+      currentDate = data?.date ?? date;
       html = content ? processMarkdownHtml(marked.parse(preprocessTableMarkdown(content)) as string) : '';
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
@@ -46,28 +64,109 @@
     }
   }
 
+  async function load() {
+    if (!topic) return;
+    loading = true;
+    loadError = '';
+    content = null;
+    html = '';
+    try {
+      dates = await fetchDates();
+      if (dates.length === 0) {
+        loading = false;
+        return;
+      }
+      currentDate = dates[0];
+      await loadContent(currentDate);
+    } catch (e) {
+      loadError = e instanceof Error ? e.message : String(e);
+      loading = false;
+    }
+  }
+
+  async function pollTask(taskId: string) {
+    while (!generateAborted) {
+      const taskRes = await fetchJson<{ status: string; result?: unknown; error?: string }>(
+        `/api/tasks/${taskId}`
+      );
+      if (taskRes?.status === 'done') {
+        await load();
+        if (typeof window !== 'undefined') sessionStorage.removeItem(PENDING_KEY);
+        break;
+      }
+      if (taskRes?.status === 'error') {
+        generateError = taskRes?.error ?? '生成失败';
+        if (typeof window !== 'undefined') sessionStorage.removeItem(PENDING_KEY);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+
   async function generate(force = false) {
     if (!topic) return;
     generating = true;
     generateError = '';
     try {
-      const res = await fetch(`/api/topics/${encodeURIComponent(topic)}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force }),
-      });
-      const data = (await res.json()) as { skipped?: boolean; error?: string };
-      if (data.error) {
-        generateError = data.error;
-      } else {
-        await load();
+      const submitRes = await fetchJson<{ taskId?: string; error?: string }>(
+        '/api/tasks',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'topic-generate', topicKey: topic, force }),
+        }
+      );
+      const taskId = submitRes?.taskId;
+      if (!taskId) {
+        generateError = submitRes?.error ?? '提交失败';
+        return;
       }
+      if (typeof window !== 'undefined') sessionStorage.setItem(PENDING_KEY, JSON.stringify({ topic, taskId }));
+      await pollTask(taskId);
     } catch (e) {
       generateError = e instanceof Error ? e.message : String(e);
+      if (typeof window !== 'undefined') sessionStorage.removeItem(PENDING_KEY);
     } finally {
       generating = false;
     }
   }
+
+  async function recoverPendingTask() {
+    if (!topic || generating) return;
+    try {
+      const raw = typeof window !== 'undefined' ? sessionStorage.getItem(PENDING_KEY) : null;
+      if (!raw) return;
+      const { topic: storedTopic, taskId } = JSON.parse(raw) as { topic?: string; taskId?: string };
+      if (storedTopic !== topic || !taskId) return;
+      generating = true;
+      await pollTask(taskId);
+    } finally {
+      generating = false;
+    }
+  }
+
+  function goPrev() {
+    const idx = dates.indexOf(currentDate);
+    if (idx < dates.length - 1) {
+      const prev = dates[idx + 1];
+      loadContent(prev);
+    }
+  }
+
+  function goNext() {
+    const idx = dates.indexOf(currentDate);
+    if (idx > 0) {
+      const next = dates[idx - 1];
+      loadContent(next);
+    }
+  }
+
+  $: hasPrev = dates.length > 0 && dates.indexOf(currentDate) < dates.length - 1;
+  $: hasNext = dates.length > 0 && dates.indexOf(currentDate) > 0;
+
+  onMount(() => {
+    recoverPendingTask();
+  });
 
   $: if (topic) {
     load();
@@ -84,10 +183,29 @@
       <div class="header-left">
         <a href="/tags" class="back-link" title="返回话题">← 话题</a>
         <h2>{topic}</h2>
+        {#if dates.length > 0}
+          <div class="nav-bar">
+            <button
+              type="button"
+              class="nav-btn"
+              disabled={!hasPrev}
+              title="上一篇"
+              on:click={goPrev}
+            >←</button>
+            <span class="nav-date">{currentDate}</span>
+            <button
+              type="button"
+              class="nav-btn"
+              disabled={!hasNext}
+              title="下一篇"
+              on:click={goNext}
+            >→</button>
+          </div>
+        {/if}
       </div>
       <div class="header-actions">
         <button class="gen-btn" on:click={() => generate(true)} disabled={generating}>
-          {generating ? '生成中…' : '生成报告'}
+          {generating ? '生成中…' : '生成'}
         </button>
       </div>
     </div>
@@ -100,7 +218,7 @@
       {:else if !content}
         <div class="state empty">
           <p>该话题尚无报告</p>
-          <p class="hint">点击「生成报告」让 Agent 基于近期文章撰写追踪报告</p>
+          <p class="hint">点击「生成」让 Agent 基于近期文章撰写追踪报告</p>
           {#if generateError}
             <p class="gen-error">{generateError}</p>
           {/if}
@@ -151,6 +269,7 @@
     display: flex;
     align-items: center;
     gap: 0.875rem;
+    flex-wrap: wrap;
   }
 
   .back-link {
@@ -167,7 +286,41 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 400px;
+    max-width: 200px;
+  }
+
+  .nav-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .nav-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    background: #fff;
+    color: #6b7280;
+    cursor: pointer;
+  }
+  .nav-btn:hover:not(:disabled) {
+    background: #f5f5f5;
+    border-color: #d1d5db;
+    color: #111;
+  }
+  .nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .nav-date {
+    font-size: 0.75rem;
+    color: #6b7280;
+    min-width: 5rem;
+    text-align: center;
   }
 
   .header-actions { display: flex; align-items: center; }

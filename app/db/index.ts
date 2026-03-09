@@ -779,7 +779,8 @@ export async function getTopicStats(): Promise<TopicStat[]> {
 
   const now = Date.now();
   const topicStats = topics.map((t) => {
-    const tags = Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.title];
+    const tagsForMatch = Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.title];
+    const displayTags = Array.isArray(t.tags) ? t.tags : [];
     let count = 0;
     let hotness = 0;
     for (const row of rows) {
@@ -789,7 +790,7 @@ export async function getTopicStats(): Promise<TopicStat[]> {
       } catch {
         continue;
       }
-      if (!itemMatchesTopic(itemTags, tags)) continue;
+      if (!itemMatchesTopic(itemTags, tagsForMatch)) continue;
       count += 1;
       const pubMs = row.pub_date ? Date.parse(row.pub_date) : null;
       const fetchedMs = Date.parse(row.fetched_at);
@@ -797,7 +798,7 @@ export async function getTopicStats(): Promise<TopicStat[]> {
     }
     return {
       ...t,
-      tags,
+      tags: displayTags,
       refresh: t.refresh ?? 1,
       count,
       hotness: Math.round(hotness * 100) / 100,

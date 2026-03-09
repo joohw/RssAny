@@ -1,15 +1,14 @@
-// 话题/日报生成：Daily = topic/日期，统一存储与生成逻辑
+// 话题报告生成：存储为 articles/[topicName]/yyyy-mm-dd.md
 
 import { mkdir, stat, writeFile, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { runDigestAgent, isDateKey } from "./agent.js";
+import { runDigestAgent } from "./agent.js";
 import { logger } from "../core/logger/index.js";
 import { getTopics } from "../db/index.js";
-import { queryItems, getItemsForDate } from "../db/index.js";
+import { queryItems } from "../db/index.js";
 
 
-const TOPICS_SUBDIR = "topics";
-const DAILY_SUBDIR = "daily";
+const ARTICLES_DIR = "articles";
 
 
 /** 话题名转安全的文件名（保留中文等，仅替换路径非法字符） */
@@ -18,54 +17,34 @@ function topicToFilename(topic: string): string {
 }
 
 
-/** 统一：key 为日期时用 daily/，否则用 topics/ */
-export function digestFilePath(cacheDir: string, key: string): string {
-  if (isDateKey(key)) {
-    return join(cacheDir, DAILY_SUBDIR, `${key}.md`);
-  }
-  return join(cacheDir, TOPICS_SUBDIR, `${topicToFilename(key)}.md`);
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 
-/** 话题报告缓存文件路径 */
+/** 存储路径：articles/[topicName]/yyyy-mm-dd.md */
+export function digestFilePath(cacheDir: string, key: string, date?: string): string {
+  const d = date ?? todayDate();
+  return join(cacheDir, ARTICLES_DIR, topicToFilename(key), `${d}.md`);
+}
+
+
+/** 话题报告缓存文件路径（当日） */
 export function topicFilePath(cacheDir: string, topic: string): string {
   return digestFilePath(cacheDir, topic);
 }
 
 
-/** 检查指定 key 的报告是否已生成 */
+/** 检查指定 key 的报告是否已生成（话题检查当日，日期检查该日） */
 export async function digestExists(cacheDir: string, key: string): Promise<boolean> {
   return stat(digestFilePath(cacheDir, key)).then(() => true).catch(() => false);
 }
 
 
-/** 读取报告内容，不存在返回 null。key 为日期或话题 */
-export async function readDigest(cacheDir: string, key: string): Promise<string | null> {
+/** 列出该话题已有报告的日期（yyyy-mm-dd），按日期降序 */
+export async function listDigestDates(cacheDir: string, key: string): Promise<string[]> {
   try {
-    return await readFile(digestFilePath(cacheDir, key), "utf-8");
-  } catch {
-    return null;
-  }
-}
-
-
-/** 读取指定话题的报告内容，不存在返回 null */
-export async function readTopicDigest(cacheDir: string, topic: string): Promise<string | null> {
-  return readDigest(cacheDir, topic);
-}
-
-
-/** 检查指定话题的报告是否已生成 */
-export async function topicExists(cacheDir: string, topic: string): Promise<boolean> {
-  return digestExists(cacheDir, topic);
-}
-
-
-/** 列出指定类型的已有报告 key（daily 返回日期列表，topics 返回话题列表） */
-export async function listDigestDates(cacheDir: string, type: "daily" | "topics" = "daily"): Promise<string[]> {
-  const subdir = type === "daily" ? DAILY_SUBDIR : TOPICS_SUBDIR;
-  const dir = join(cacheDir, subdir);
-  try {
+    const dir = join(cacheDir, ARTICLES_DIR, topicToFilename(key));
     const files = await readdir(dir);
     return files
       .filter((f) => f.endsWith(".md"))
@@ -77,9 +56,54 @@ export async function listDigestDates(cacheDir: string, type: "daily" | "topics"
   }
 }
 
+/** 读取报告内容，不存在返回 null。date 不传则读最新日期的文件。返回 { content, date } 便于前端展示 */
+export async function readDigest(
+  cacheDir: string,
+  key: string,
+  date?: string
+): Promise<{ content: string; date: string } | null> {
+  try {
+    const dir = join(cacheDir, ARTICLES_DIR, topicToFilename(key));
+    const files = await readdir(dir);
+    const mdFiles = files.filter((f) => f.endsWith(".md")).sort().reverse();
+    if (mdFiles.length === 0) return null;
+    const target = date && mdFiles.includes(`${date}.md`) ? `${date}.md` : mdFiles[0];
+    const content = await readFile(join(dir, target), "utf-8");
+    const resolvedDate = target.slice(0, -3);
+    return { content, date: resolvedDate };
+  } catch {
+    return null;
+  }
+}
+
+
+/** 读取指定话题的报告内容，不存在返回 null */
+export async function readTopicDigest(cacheDir: string, topic: string): Promise<string | null> {
+  const r = await readDigest(cacheDir, topic);
+  return r?.content ?? null;
+}
+
+
+/** 检查指定话题的报告是否已生成 */
+export async function topicExists(cacheDir: string, topic: string): Promise<boolean> {
+  return digestExists(cacheDir, topic);
+}
+
+
+/** 列出已有报告的话题名列表 */
+export async function listDigestTopics(cacheDir: string): Promise<string[]> {
+  const baseDir = join(cacheDir, ARTICLES_DIR);
+  try {
+    const subdirs = await readdir(baseDir);
+    return subdirs.sort();
+  } catch {
+    return [];
+  }
+}
+
 
 /**
- * 统一生成报告：key 为日期时生成日报，否则生成话题追踪
+ * 生成报告：统一话题逻辑，tags 为空时取全部文章
  */
 export async function generateDigest(
   cacheDir: string,
@@ -88,44 +112,10 @@ export async function generateDigest(
 ): Promise<{ key: string; skipped: boolean; path: string }> {
   const filePath = digestFilePath(cacheDir, key);
   if (!force && await digestExists(cacheDir, key)) {
-    logger.debug("daily", "报告已存在，跳过生成", { key });
+    logger.debug("topics", "报告已存在，跳过生成", { key });
     return { key, skipped: true, path: filePath };
   }
-  if (isDateKey(key)) {
-    return doGenerateDaily(cacheDir, key, filePath);
-  }
   return doGenerateTopic(cacheDir, key, filePath);
-}
-
-async function doGenerateDaily(
-  cacheDir: string,
-  date: string,
-  filePath: string
-): Promise<{ key: string; skipped: boolean; path: string }> {
-  const items = await getItemsForDate(date);
-  if (items.length === 0) {
-    logger.info("daily", "当日无条目，跳过生成", { date });
-    return { key: date, skipped: true, path: filePath };
-  }
-  logger.info("daily", "开始生成日报（Agent）", { date, itemCount: items.length });
-
-  const prevDate = new Date(date);
-  prevDate.setDate(prevDate.getDate() - 1);
-  const previousArticle = await readDigest(cacheDir, prevDate.toISOString().slice(0, 10));
-
-  let agentContent: string;
-  try {
-    agentContent = await runDigestAgent(date, { previousArticle });
-  } catch (err) {
-    logger.error("daily", "日报生成失败", { date, err: err instanceof Error ? err.message : String(err) });
-    throw err;
-  }
-  const now = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  const header = `# 日报 · ${date}\n\n> Agent 生成于 ${now}，共整理 ${items.length} 篇文章\n\n`;
-  await mkdir(join(cacheDir, DAILY_SUBDIR), { recursive: true });
-  await writeFile(filePath, header + agentContent, "utf-8");
-  logger.info("daily", "日报生成完成", { date, path: filePath });
-  return { key: date, skipped: false, path: filePath };
 }
 
 async function doGenerateTopic(
@@ -136,7 +126,9 @@ async function doGenerateTopic(
   const topics = await getTopics();
   const topicConfig = topics.find((t) => t.title === topicKey);
   const periodDays = Math.max(1, topicConfig?.refresh ?? 1);
-  const searchTags = (topicConfig?.tags?.length ? topicConfig.tags : [topicKey]) as string[];
+  const tags = topicConfig?.tags;
+  const tagsForQuery = Array.isArray(tags) && tags.length > 0 ? tags : (topicConfig ? undefined : [topicKey]);
+  const searchTagsForPrompt = tagsForQuery ?? (topicConfig ? [] : [topicKey]);
   const prompt = topicConfig?.prompt ?? "";
 
   const since = new Date();
@@ -145,36 +137,37 @@ async function doGenerateTopic(
   until.setDate(until.getDate() + 1);
 
   const result = await queryItems({
-    tags: searchTags,
+    tags: tagsForQuery,
     since,
     until,
     limit: 1,
     offset: 0,
   });
   if (result.items.length === 0 && result.total === 0) {
-    logger.info("daily", "该话题近期无文章，跳过生成", { topic: topicKey, periodDays });
+    logger.info("topics", "该话题近期无文章，跳过生成", { topic: topicKey, periodDays });
     return { key: topicKey, skipped: true, path: filePath };
   }
-  logger.info("daily", "开始生成话题报告（Agent）", { topic: topicKey, periodDays, itemCount: result.total });
+  logger.info("topics", "开始生成话题报告（Agent）", { topic: topicKey, periodDays, itemCount: result.total });
 
-  const previousArticle = await readDigest(cacheDir, topicKey);
+  const prevDigest = await readDigest(cacheDir, topicKey);
+  const previousArticle = prevDigest?.content ?? null;
   let agentContent: string;
   try {
     agentContent = await runDigestAgent(topicKey, {
       periodDays,
       previousArticle,
-      searchTags,
+      searchTags: searchTagsForPrompt,
       prompt,
     });
   } catch (err) {
-    logger.error("daily", "话题报告生成失败", { topic: topicKey, err: err instanceof Error ? err.message : String(err) });
+    logger.error("topics", "话题报告生成失败", { topic: topicKey, err: err instanceof Error ? err.message : String(err) });
     throw err;
   }
   const now = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   const header = `# 话题追踪 · ${topicKey}\n\n> Agent 生成于 ${now}，共整理 ${result.total} 篇相关文章（周期 ${periodDays} 天）\n\n`;
-  await mkdir(join(cacheDir, TOPICS_SUBDIR), { recursive: true });
+  await mkdir(join(cacheDir, ARTICLES_DIR, topicToFilename(topicKey)), { recursive: true });
   await writeFile(filePath, header + agentContent, "utf-8");
-  logger.info("daily", "话题报告生成完成", { topic: topicKey, path: filePath });
+  logger.info("topics", "话题报告生成完成", { topic: topicKey, path: filePath });
   return { key: topicKey, skipped: false, path: filePath };
 }
 
