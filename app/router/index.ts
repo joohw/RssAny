@@ -13,7 +13,8 @@ import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CACHE_DIR } from ".
 import { logger } from "../core/logger/index.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerChatRoutes } from "./routes/chat.js";
-import { registerApiRoutes } from "./routes/api.js";
+import { registerApiRoutes } from "./routes/api/index.js";
+import { registerGatewayRoutes } from "./routes/gateway.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerRssRoutes } from "./routes/rss.js";
@@ -29,6 +30,7 @@ function createApp(): Hono {
   registerMcpRoutes(app);
   registerChatRoutes(app);
   registerApiRoutes(app);
+  registerGatewayRoutes(app);
   registerAuthRoutes(app);
   registerAdminRoutes(app);
   registerRssRoutes(app);

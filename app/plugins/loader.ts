@@ -1,4 +1,5 @@
-// 插件加载器：从 plugins/{sources,enrich,pipeline}/ 和 .rssany/plugins/{sources,enrich,pipeline}/ 加载三阶段插件
+// 插件加载器：从 plugins/{sources,enrich}/ 和 .rssany/plugins/{sources,enrich}/ 加载信源与 enrich 插件
+// pipeline 已移至 app/pipeline/ 作为固定流程，不再作为插件
 
 import { readdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -10,8 +11,6 @@ import {
   USER_SOURCES_DIR,
   BUILTIN_ENRICH_DIR,
   USER_ENRICH_DIR,
-  BUILTIN_PIPELINE_DIR,
-  USER_PIPELINE_DIR,
   BUILTIN_PLUGINS_DIR,
   USER_PLUGINS_DIR,
 } from "../config/paths.js";
@@ -61,15 +60,6 @@ export interface EnrichPlugin {
   priority?: number;
 }
 
-/** Pipeline 插件：对条目二次加工（如 tag、translate） */
-export interface PipelinePlugin {
-  id: string;
-  match: (item: FeedItem, ctx: PluginContext) => boolean;
-  run: (item: FeedItem, ctx: PluginContext) => Promise<FeedItem>;
-  priority?: number;
-}
-
-
 /** 判断对象是否为有效的 Site 实现 */
 function isValidSite(obj: unknown): obj is Site {
   if (obj == null || typeof obj !== "object") return false;
@@ -99,14 +89,6 @@ function isValidEnrichPlugin(obj: unknown): obj is EnrichPlugin {
   const p = obj as Record<string, unknown>;
   return typeof p.id === "string" && typeof p.match === "function" && typeof p.enrichItem === "function";
 }
-
-/** 判断对象是否为有效的 PipelinePlugin */
-function isValidPipelinePlugin(obj: unknown): obj is PipelinePlugin {
-  if (obj == null || typeof obj !== "object") return false;
-  const p = obj as Record<string, unknown>;
-  return typeof p.id === "string" && typeof p.match === "function" && typeof p.run === "function";
-}
-
 
 /** 从单个目录加载 Site / Source 插件 */
 async function loadSourcePluginsFromDir(
@@ -251,9 +233,6 @@ export async function loadSiteAndSourcePlugins(): Promise<{ sites: Site[]; sourc
 /** 已加载的 Enrich 插件（按 priority 排序） */
 export let registeredEnrichPlugins: EnrichPlugin[] = [];
 
-/** 已加载的 Pipeline 插件（按 priority 排序） */
-export let registeredPipelinePlugins: PipelinePlugin[] = [];
-
 
 /** 加载 Enrich 插件 */
 export async function loadEnrichPlugins(): Promise<EnrichPlugin[]> {
@@ -274,32 +253,9 @@ export async function loadEnrichPlugins(): Promise<EnrichPlugin[]> {
 }
 
 
-/** 加载 Pipeline 插件 */
-export async function loadPipelinePlugins(): Promise<PipelinePlugin[]> {
-  const [builtin, user] = await Promise.all([
-    loadPluginsFromDir(BUILTIN_PIPELINE_DIR, "builtin:pipeline", isValidPipelinePlugin),
-    loadPluginsFromDir(USER_PIPELINE_DIR, "user:pipeline", isValidPipelinePlugin),
-  ]);
-  const merged = new Map<string, PipelinePlugin>();
-  for (const p of builtin) merged.set(p.id, p);
-  for (const p of user) {
-    if (merged.has(p.id)) logger.info("plugin", "用户 Pipeline 插件覆盖同名内置", { pluginId: p.id });
-    merged.set(p.id, p);
-  }
-  const list = Array.from(merged.values());
-  list.sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
-  registeredPipelinePlugins = list;
-  return list;
-}
-
-
 /** 根据条目获取匹配的 Enrich 插件（优先级最高者） */
 export function getMatchedEnrichPlugin(item: FeedItem, ctx: { sourceUrl?: string }): EnrichPlugin | undefined {
   return registeredEnrichPlugins.find((p) => p.match(item, ctx));
 }
 
 
-/** 根据条目获取所有匹配的 Pipeline 插件（按 priority 排序） */
-export function getMatchedPipelinePlugins(item: FeedItem, ctx: PluginContext): PipelinePlugin[] {
-  return registeredPipelinePlugins.filter((p) => p.match(item, ctx));
-}

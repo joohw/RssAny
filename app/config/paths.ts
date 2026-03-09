@@ -29,8 +29,14 @@ export const SOURCES_CONFIG_PATH = join(USER_DIR, "sources.json");
 export const CHANNELS_CONFIG_PATH = join(USER_DIR, "channels.json");
 
 
-/** 系统标签配置：.rssany/tags.json（用户管理的标签库，供 pipeline tagger 使用） */
+/** 系统标签配置：.rssany/tags.json（已废弃，迁移至 topics.json） */
 export const TAGS_CONFIG_PATH = join(USER_DIR, "tags.json");
+
+/** 话题配置：.rssany/topics.json（title、tags、prompt、refresh） */
+export const TOPICS_CONFIG_PATH = join(USER_DIR, "topics.json");
+
+/** 全局配置：.rssany/config.json（enrich、pipeline 等） */
+export const CONFIG_PATH = join(USER_DIR, "config.json");
 
 
 /** @deprecated 仅用于迁移：若存在 .rssany/subscriptions.json 且无 sources.json 则迁移为 sources.json */
@@ -45,13 +51,11 @@ export const BUILTIN_PLUGINS_DIR = join(process.cwd(), "plugins");
 export const USER_PLUGINS_DIR = join(USER_DIR, "plugins");
 
 
-/** 三阶段插件子目录：sources（信源） / enrich（补全） / pipeline（二次加工） */
+/** 插件子目录：sources（信源） / enrich（补全）；pipeline 已移至 app/pipeline/ 作为固定流程 */
 export const BUILTIN_SOURCES_DIR = join(BUILTIN_PLUGINS_DIR, "sources");
 export const USER_SOURCES_DIR = join(USER_PLUGINS_DIR, "sources");
 export const BUILTIN_ENRICH_DIR = join(BUILTIN_PLUGINS_DIR, "enrich");
 export const USER_ENRICH_DIR = join(USER_PLUGINS_DIR, "enrich");
-export const BUILTIN_PIPELINE_DIR = join(BUILTIN_PLUGINS_DIR, "pipeline");
-export const USER_PIPELINE_DIR = join(USER_PLUGINS_DIR, "pipeline");
 
 
 /** 检查路径是否存在 */
@@ -86,7 +90,6 @@ export async function initUserDir(): Promise<void> {
   await mkdir(USER_PLUGINS_DIR, { recursive: true });
   await mkdir(USER_SOURCES_DIR, { recursive: true });
   await mkdir(USER_ENRICH_DIR, { recursive: true });
-  await mkdir(USER_PIPELINE_DIR, { recursive: true });
   await migrateFile(join(process.cwd(), "sites.json"), SITES_CONFIG_PATH);
   await migrateFile(join(process.cwd(), "subscriptions.json"), SOURCES_CONFIG_PATH);
   await migrateFile(join(process.cwd(), "data", "rssany.db"), join(DATA_DIR, "rssany.db"));
@@ -120,6 +123,28 @@ export async function initUserDir(): Promise<void> {
       logger.info("config", "已根据 sources.json 生成默认 channels.json");
     } catch (err) {
       logger.warn("config", "生成 channels.json 失败", { err: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  // 迁移 tags.json → topics.json（旧格式：{ tags, periods } → 新格式：{ topics: [{ title, tags, prompt, refresh }] }）
+  if (!(await pathExists(TOPICS_CONFIG_PATH)) && (await pathExists(TAGS_CONFIG_PATH))) {
+    try {
+      const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
+      const parsed = JSON.parse(raw) as { tags?: string[]; periods?: Record<string, number> };
+      const tagList = Array.isArray(parsed?.tags) ? parsed.tags : [];
+      const periods = parsed?.periods && typeof parsed.periods === "object" ? parsed.periods : {};
+      const topics = tagList
+        .filter((t) => typeof t === "string" && t.trim())
+        .map((t) => t.trim())
+        .map((title) => ({
+          title,
+          tags: [title],
+          prompt: "",
+          refresh: Math.max(1, Math.floor(Number(periods[title])) || 1),
+        }));
+      await writeFile(TOPICS_CONFIG_PATH, JSON.stringify({ topics }, null, 2), "utf-8");
+      logger.info("config", "已从 tags.json 迁移至 topics.json", { count: topics.length });
+    } catch (err) {
+      logger.warn("config", "tags.json 迁移至 topics.json 失败", { err: err instanceof Error ? err.message : String(err) });
     }
   }
 }

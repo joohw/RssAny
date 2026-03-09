@@ -5,7 +5,8 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { cacheKey } from "../core/cacher/index.js";
 import { getSource } from "../scraper/sources/index.js";
-import { getMatchedEnrichPlugin, getMatchedPipelinePlugins } from "../plugins/loader.js";
+import { getMatchedEnrichPlugin } from "../plugins/loader.js";
+import { runPipeline } from "../pipeline/index.js";
 import { buildEnrichContext } from "../scraper/sources/web/index.js";
 import { AuthRequiredError } from "../scraper/auth/index.js";
 import { buildRssXml } from "./rss.js";
@@ -19,8 +20,7 @@ import { upsertItems, updateItemContent, getExistingIds, getSystemTags } from ".
 import { emitFeedUpdated } from "../core/events/index.js";
 import { enrichQueue } from "../scraper/enrich/index.js";
 import { chatJson, chatText } from "../agent/llm.js";
-import { writeItems, writeItem } from "../writer/index.js";
-import type { PluginContext } from "../plugins/loader.js";
+import type { PipelineContext } from "../pipeline/index.js";
 import { logger } from "../core/logger/index.js";
 
 
@@ -83,44 +83,18 @@ function toRssEntry(item: FeedItem, lng?: string | null): RssEntry {
 const generatingKeys = new Map<string, Promise<{ items: FeedItem[] }>>();
 
 
-/** 执行 pipeline：config 步骤 + 匹配的 pipeline 插件 */
-const llm = { chatJson, chatText };
-const db = { getSystemTags };
-
-
-async function runPipelineWithPlugins(
-  items: FeedItem[],
-  ctx: { sourceUrl: string; isEnriched?: boolean },
-): Promise<FeedItem[]> {
-  const pluginCtx: PluginContext = { ...ctx, llm, db };
-  const out: FeedItem[] = [];
-  for (let i = 0; i < items.length; i++) {
-    let item = items[i];
-    const plugins = getMatchedPipelinePlugins(item, pluginCtx);
-    for (const p of plugins) {
-      try {
-        item = await p.run(item, pluginCtx);
-      } catch (err) {
-        logger.warn("feeder", "Pipeline 插件执行失败", {
-          pluginId: p.id,
-          item_url: item.link,
-          err: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    out.push(item);
-  }
-  return out;
-}
-
+/** Pipeline 上下文 */
+const pipelineCtx: PipelineContext = {
+  llm: { chatJson, chatText } as PipelineContext["llm"],
+  db: { getSystemTags },
+};
 
 /** 单条 pipeline */
-async function runPipelineOnItemWithPlugins(
+async function runPipelineOnItem(
   item: FeedItem,
   ctx: { sourceUrl: string; isEnriched?: boolean },
 ): Promise<FeedItem> {
-  const [out] = await runPipelineWithPlugins([item], ctx);
-  return out;
+  return runPipeline(item, { ...pipelineCtx, ...ctx });
 }
 
 
@@ -178,9 +152,6 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     });
     newCount = result.newCount;
     newIds = result.newIds;
-    writeItems(items).catch((err) =>
-      logger.warn("writer", "批量写入失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
-    );
   }
   const hasEnrich =
     source.enrichItem != null || items.some((i) => getMatchedEnrichPlugin(i, { sourceUrl: listUrl }));
@@ -188,14 +159,11 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
     // 无 enrich 时，pipeline 在入库后对新条目执行一次
     for (let i = 0; i < items.length; i++) {
       if (!newIds.has(items[i].guid)) continue;
-      const processed = await runPipelineOnItemWithPlugins(items[i], { sourceUrl: listUrl, isEnriched: false });
+      const processed = await runPipelineOnItem(items[i], { sourceUrl: listUrl, isEnriched: false });
       items[i] = processed;
       if (config.writeDb) {
         updateItemContent(processed).catch((err) =>
           logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
-        );
-        writeItem(processed).catch((err) =>
-          logger.warn("writer", "写单条失败", { url: processed.link, err: err instanceof Error ? err.message : String(err) })
         );
       }
     }
@@ -218,15 +186,12 @@ async function generateAndCache(listUrl: string, key: string, config: FeederConf
         enrichedItem.sourceRef = listUrl;
         // 只对新条目执行 pipeline，已存在于 DB 的条目跳过
         const processed = newIds.has(enrichedItem.guid)
-          ? await runPipelineOnItemWithPlugins(enrichedItem, { sourceUrl: listUrl, isEnriched: true })
+          ? await runPipelineOnItem(enrichedItem, { sourceUrl: listUrl, isEnriched: true })
           : enrichedItem;
         items[index] = processed;
         if (config.writeDb) {
           updateItemContent(processed).catch((err) =>
             logger.warn("db", "updateItemContent 失败", { source_url: listUrl, err: err instanceof Error ? err.message : String(err) })
-          );
-          writeItem(processed).catch((err) =>
-            logger.warn("writer", "写单条失败", { url: enrichedItem.link, err: err instanceof Error ? err.message : String(err) })
           );
         }
         if (cacheDir) {
@@ -335,7 +300,7 @@ function parseGatewayItem(raw: Record<string, unknown>): FeedItem | null {
 }
 
 
-/** 从外部 Gateway 接收 FeedItem 并入库：直接 upsertItems → updateItemContent（有 content 时）→ writeItems。不执行 pipeline，由 scraper 抓取路径负责 pipeline。 */
+/** 从外部 Gateway 接收 FeedItem 并入库：upsertItems → pipeline（打标签、翻译等）→ updateItemContent */
 export async function ingestFromGateway(
   rawItems: unknown[],
   config: GatewayIngestConfig,
@@ -371,13 +336,12 @@ export async function ingestFromGateway(
     const result = await upsertItems(newItems, sourceRef);
     newCount = result.newCount;
     for (const item of newItems) {
-      if (item.content) {
-        await updateItemContent(item).catch((err) =>
-          logger.warn("db", "Gateway updateItemContent 失败", { url: item.link, err: err instanceof Error ? err.message : String(err) })
-        );
-      }
-      writeItem(item).catch((err) =>
-        logger.warn("writer", "Gateway 写单条失败", { url: item.link, err: err instanceof Error ? err.message : String(err) })
+      const processed = await runPipelineOnItem(item, {
+        sourceUrl: sourceRef,
+        isEnriched: !!item.content,
+      });
+      await updateItemContent(processed).catch((err) =>
+        logger.warn("db", "Gateway updateItemContent 失败", { url: item.link, err: err instanceof Error ? err.message : String(err) })
       );
     }
     if (newCount > 0) {

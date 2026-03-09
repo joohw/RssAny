@@ -1,6 +1,8 @@
 {
-    "writer": {
-        "enabled": true,
-        "repoPath": "../AI Signals"
+    "pipeline": {
+        "steps": [
+            { "id": "tagger", "enabled": false },
+            { "id": "translator", "enabled": false }
+        ]
     }
 }

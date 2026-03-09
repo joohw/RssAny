@@ -1,0 +1,10 @@
+{
+  "topics": [
+    {
+      "title": "A2A协议",
+      "tags": ["A2A协议", "Agent-to-Agent"],
+      "prompt": "关注谷歌、OpenAI等大型公司在Agent-to-Agent通信领域的最新进展",
+      "refresh": 1
+    }
+  ]
+}

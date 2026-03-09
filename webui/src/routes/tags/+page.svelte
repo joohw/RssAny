@@ -2,19 +2,24 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
 
-  interface TagStat {
-    name: string;
+  interface TopicStat {
+    title: string;
+    tags?: string[];
+    prompt?: string;
+    refresh?: number;
     count: number;
     hotness: number;
-    period?: number;
   }
 
-  const PERIOD_OPTIONS = [1, 3, 7, 14, 30];
+  const REFRESH_OPTIONS = [1, 3, 7, 14, 30];
 
   interface TopicCard {
-    name: string;
+    title: string;
+    tags: string[];
+    prompt: string;
+    refresh: number;
     count: number;
-    period: number;
+    hotness: number;
     articleHref: string;
     feedsHref: string;
   }
@@ -22,26 +27,33 @@
   let cards: TopicCard[] = [];
   let loading = true;
   let loadError = '';
-  let newTag = '';
+  let showAddForm = false;
+  let newTitle = '';
+  let newTags = '';
+  let newPrompt = '';
+  let newRefresh = 1;
   let saving = false;
   let saveMsg = '';
-  let contextMenu: { x: number; y: number; tagName: string } | null = null;
+  let contextMenu: { x: number; y: number; topicTitle: string } | null = null;
 
   async function load() {
     loading = true;
     loadError = '';
     try {
-      const res = await fetch('/api/tags');
-      const data = (await res.json()) as { stats?: TagStat[] };
+      const res = await fetch('/api/topics');
+      const data = (await res.json()) as { stats?: TopicStat[] };
       const list = data.stats ?? [];
       cards = list
         .sort((a, b) => b.hotness - a.hotness)
         .map((s) => ({
-          name: s.name,
+          title: s.title,
+          tags: s.tags ?? [s.title],
+          prompt: s.prompt ?? '',
+          refresh: s.refresh ?? 1,
           count: s.count,
-          period: s.period ?? 1,
-          articleHref: '/topics/' + encodeURIComponent(s.name),
-          feedsHref: '/feeds?tags=' + encodeURIComponent(s.name),
+          hotness: s.hotness,
+          articleHref: '/topics/' + encodeURIComponent(s.title),
+          feedsHref: '/feeds?tags=' + (s.tags ?? [s.title]).map(encodeURIComponent).join(','),
         }));
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
@@ -51,16 +63,25 @@
     }
   }
 
-  async function save(tags: string[], periods?: Record<string, number>) {
+  function getTopicsPayload(): Array<{ title: string; tags: string[]; prompt: string; refresh: number }> {
+    return cards.map((c) => ({
+      title: c.title,
+      tags: c.tags.length ? c.tags : [c.title],
+      prompt: c.prompt,
+      refresh: c.refresh,
+    }));
+  }
+
+  async function save(topics: Array<{ title: string; tags: string[]; prompt: string; refresh: number }>) {
     saving = true;
     saveMsg = '';
     try {
-      const res = await fetch('/api/tags', {
+      const res = await fetch('/api/topics', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags, periods }),
+        body: JSON.stringify({ topics }),
       });
-      const data = (await res.json()) as { ok?: boolean; stats?: TagStat[]; message?: string };
+      const data = (await res.json()) as { ok?: boolean; message?: string };
       if (!data.ok) throw new Error(data.message ?? '保存失败');
       await load();
       saveMsg = '已保存';
@@ -72,50 +93,57 @@
     }
   }
 
-  function getPeriods(): Record<string, number> {
-    const out: Record<string, number> = {};
-    for (const c of cards) {
-      out[c.name] = c.period;
-    }
-    return out;
-  }
-
-  function updatePeriod(name: string, period: number) {
+  function updateRefresh(title: string, refresh: number) {
     if (saving) return;
-    const periods = getPeriods();
-    periods[name] = period;
-    save(cards.map((c) => c.name), periods);
+    const next = cards.map((c) =>
+      c.title === title ? { ...c, refresh } : c
+    );
+    const topics = next.map((c) => ({
+      title: c.title,
+      tags: c.tags,
+      prompt: c.prompt,
+      refresh: c.refresh,
+    }));
+    save(topics);
   }
 
-  function addTag() {
-    const t = newTag.trim();
-    if (!t || saving) return;
-    const existing = cards.map((c) => c.name);
-    if (existing.includes(t)) {
+  function addTopic() {
+    const title = newTitle.trim();
+    if (!title || saving) return;
+    if (cards.some((c) => c.title === title)) {
       saveMsg = '话题已存在';
       setTimeout(() => { saveMsg = ''; }, 1500);
       return;
     }
-    newTag = '';
-    const periods = getPeriods();
-    periods[t] = 1;
-    save([...existing, t], periods);
+    const tags = newTags.trim()
+      ? newTags.split(',').map((t) => t.trim()).filter(Boolean)
+      : [title];
+    const topic = {
+      title,
+      tags,
+      prompt: newPrompt.trim(),
+      refresh: newRefresh,
+    };
+    newTitle = '';
+    newTags = '';
+    newPrompt = '';
+    newRefresh = 1;
+    showAddForm = false;
+    save([...getTopicsPayload(), topic]);
   }
 
-  function removeTag(name: string) {
+  function removeTopic(title: string) {
     if (saving) return;
-    const next = cards.filter((c) => c.name !== name).map((c) => c.name);
-    const periods = getPeriods();
-    delete periods[name];
-    save(next, periods);
+    const next = cards.filter((c) => c.title !== title);
+    save(next.map((c) => ({ title: c.title, tags: c.tags, prompt: c.prompt, refresh: c.refresh })));
     contextMenu = null;
   }
 
-  function showContextMenu(e: MouseEvent, tagName: string) {
+  function showContextMenu(e: MouseEvent, topicTitle: string) {
     if (saving) return;
     e.preventDefault();
     e.stopPropagation();
-    contextMenu = { x: e.clientX, y: e.clientY, tagName };
+    contextMenu = { x: e.clientX, y: e.clientY, topicTitle };
   }
 
   function closeContextMenu() {
@@ -143,47 +171,89 @@
   <div class="feed-col">
     <div class="feed-header">
       <h2>话题</h2>
-      <p class="sub">添加话题/关键词后，新内容会自动聚合到对应的话题、关键词下，并在后台生成该话题的追踪情况。</p>
+      <p class="sub">话题包含 title（必填）、tags（关键词）、prompt（描述），refresh 默认 1 天。新内容经 pipeline 打标签后会自动聚合到对应话题，并生成追踪报告。</p>
     </div>
 
     <div class="add-bar">
-      <input
-        type="text"
-        placeholder="输入新话题/关键词"
-        bind:value={newTag}
-        on:keydown={(e) => e.key === 'Enter' && addTag()}
+      <button
+        type="button"
+        class="add-btn"
+        on:click={() => { showAddForm = !showAddForm; if (!showAddForm) { newTitle = ''; newTags = ''; newPrompt = ''; newRefresh = 1; } }}
         disabled={loading || saving}
-      />
-      <button type="button" on:click={addTag} disabled={loading || saving || !newTag.trim()}>
-        添加
+      >
+        {showAddForm ? '取消' : '+ 添加话题'}
       </button>
       {#if saveMsg}
         <span class="save-msg">{saveMsg}</span>
       {/if}
     </div>
 
+    {#if showAddForm}
+      <div class="add-form">
+        <div class="form-row">
+          <label>标题 <span class="required">*</span></label>
+          <input
+            type="text"
+            placeholder="简短描述，如：A2A协议"
+            bind:value={newTitle}
+            on:keydown={(e) => e.key === 'Enter' && addTopic()}
+          />
+        </div>
+        <div class="form-row">
+          <label>关键词（tags）</label>
+          <input
+            type="text"
+            placeholder="逗号分隔，如：A2A协议,Agent-to-Agent（留空则用标题）"
+            bind:value={newTags}
+          />
+        </div>
+        <div class="form-row">
+          <label>描述（prompt）</label>
+          <textarea
+            placeholder="供 Agent 参考，如：关注谷歌、OpenAI 等在 Agent-to-Agent 通信领域的最新进展"
+            bind:value={newPrompt}
+            rows="2"
+          />
+        </div>
+        <div class="form-row form-actions">
+          <select bind:value={newRefresh} title="刷新周期（天）">
+            {#each REFRESH_OPTIONS as d}
+              <option value={d}>{d} 天</option>
+            {/each}
+          </select>
+          <button type="button" on:click={addTopic} disabled={!newTitle.trim() || saving}>
+            添加
+          </button>
+        </div>
+      </div>
+    {/if}
+
     {#if loading}
       <div class="state">加载中…</div>
     {:else if loadError}
       <div class="state error">{loadError}</div>
     {:else if cards.length === 0}
-      <div class="state">暂无话题。在上方输入框添加话题后，pipeline 会自动为文章打标签，并在此聚合。</div>
+      <div class="state">暂无话题。点击「添加话题」创建，需填写标题（必填），可选填关键词和描述。</div>
     {:else}
       <div class="list">
-        {#each cards as card (card.name)}
+        {#each cards as card (card.title)}
           <div
             class="card"
             role="button"
             tabindex="0"
-            title="{card.name}：{card.count} 篇，周期 {card.period} 天。点击查看报告，右键删除"
+            title="{card.title}：{card.count} 篇，周期 {card.refresh} 天。点击查看报告，右键删除"
             on:click={() => goto(card.articleHref)}
             on:keydown={(e) => e.key === 'Enter' && goto(card.articleHref)}
-            on:contextmenu={(e) => showContextMenu(e, card.name)}
+            on:contextmenu={(e) => showContextMenu(e, card.title)}
           >
             <div class="card-main">
-              <span class="card-label">{card.name}</span>
+              <span class="card-label">{card.title}</span>
+              <span class="card-tags">{card.tags.join(', ')}</span>
+              {#if card.prompt}
+                <span class="card-prompt">{card.prompt}</span>
+              {/if}
               <span class="card-desc">
-                周期 {card.period} 天 · 追踪中 ·
+                周期 {card.refresh} 天 · 追踪中 ·
                 <a
                   href={card.feedsHref}
                   class="card-feeds-btn"
@@ -195,14 +265,14 @@
             <div class="card-right">
               <select
                 class="card-period"
-                value={card.period}
-                on:change={(e) => { e.stopPropagation(); updatePeriod(card.name, Number((e.target as HTMLSelectElement).value)); }}
+                value={card.refresh}
+                on:change={(e) => { e.stopPropagation(); updateRefresh(card.title, Number((e.target as HTMLSelectElement).value)); }}
                 on:click|stopPropagation
                 on:mousedown|stopPropagation
                 disabled={saving}
-                title="Track 周期（天）"
+                title="刷新周期（天）"
               >
-                {#each PERIOD_OPTIONS as d}
+                {#each REFRESH_OPTIONS as d}
                   <option value={d}>{d}天</option>
                 {/each}
               </select>
@@ -229,7 +299,7 @@
     <button
       type="button"
       class="context-menu-item"
-      on:click={() => removeTag(contextMenu!.tagName)}
+      on:click={() => removeTopic(contextMenu!.topicTitle)}
     >
       删除
     </button>
@@ -279,19 +349,7 @@
     border-bottom: 1px solid #f0f0f0;
     flex-shrink: 0;
   }
-  .add-bar input {
-    flex: 1;
-    min-width: 0;
-    padding: 0.4rem 0.6rem;
-    font-size: 0.875rem;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-  }
-  .add-bar input:focus {
-    outline: none;
-    border-color: #0969da;
-  }
-  .add-bar button {
+  .add-btn {
     padding: 0.4rem 0.75rem;
     font-size: 0.8125rem;
     background: #0969da;
@@ -300,16 +358,84 @@
     border-radius: 6px;
     cursor: pointer;
   }
-  .add-bar button:hover:not(:disabled) {
+  .add-btn:hover:not(:disabled) {
     background: #0550ae;
   }
-  .add-bar button:disabled {
+  .add-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
   .save-msg {
     font-size: 0.75rem;
     color: #059669;
+  }
+
+  .add-form {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid #f0f0f0;
+    background: #fafafa;
+    flex-shrink: 0;
+  }
+  .form-row {
+    margin-bottom: 0.5rem;
+  }
+  .form-row:last-of-type {
+    margin-bottom: 0;
+  }
+  .form-row label {
+    display: block;
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-bottom: 0.2rem;
+  }
+  .required {
+    color: #c53030;
+  }
+  .form-row input,
+  .form-row textarea {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.875rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    box-sizing: border-box;
+  }
+  .form-row textarea {
+    resize: vertical;
+    min-height: 2.5rem;
+  }
+  .form-row input:focus,
+  .form-row textarea:focus {
+    outline: none;
+    border-color: #0969da;
+  }
+  .form-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .form-actions select {
+    font-size: 0.8rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+  }
+  .form-actions button {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8125rem;
+    background: #0969da;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .form-actions button:hover:not(:disabled) {
+    background: #0550ae;
+  }
+  .form-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .state {
@@ -374,6 +500,17 @@
   }
   .card:hover .card-label {
     color: #0969da;
+  }
+  .card-tags {
+    font-size: 0.7rem;
+    color: #6b7280;
+  }
+  .card-prompt {
+    font-size: 0.72rem;
+    color: #9ca3af;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .card-feeds-btn {
     font-size: inherit;

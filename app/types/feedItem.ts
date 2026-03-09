@@ -69,7 +69,7 @@ export interface FeedItem {
     categories?: string[];
     /** 系统 / pipeline 生成的标签（从用户管理的标签库中匹配） */
     tags?: string[];
-    /** 信源标识（列表页 URL 或 imap 等），入库与按 channel 筛选用；设后则 upsertItems / writeItems 等无需再传 ref */
+    /** 信源标识（列表页 URL 或 imap 等），入库与按 channel 筛选用；设后则 upsertItems 等无需再传 ref */
     sourceRef?: string;
     /**
      * 多语种译文。key 为 BCP 47（如 zh-CN、en），路由支持 lng 参数时可据此返回对应译文。

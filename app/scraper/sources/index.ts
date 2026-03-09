@@ -1,7 +1,7 @@
 // 统一信源注册表：汇聚 WebSource 插件、Source 插件（RSS/Email）、genericWebSource，提供 getSource 查找入口
 
 import { createWebSource, genericWebSource, setLoadedSites } from "./web/index.js";
-import { loadSiteAndSourcePlugins, loadEnrichPlugins, loadPipelinePlugins } from "../../plugins/loader.js";
+import { loadSiteAndSourcePlugins, loadEnrichPlugins } from "../../plugins/loader.js";
 import type { Source } from "./types.js";
 import { logger } from "../../core/logger/index.js";
 
@@ -44,12 +44,11 @@ export function getSourceById(id: string): Source | undefined {
 }
 
 
-/** 初始化所有信源及 enrich/pipeline 插件：加载三阶段插件、构建注册表 */
+/** 初始化所有信源及 enrich 插件：加载信源与 enrich 插件、构建注册表（pipeline 为固定流程，见 app/pipeline/） */
 export async function initSources(): Promise<void> {
   const [siteResult] = await Promise.all([
     loadSiteAndSourcePlugins(),
     loadEnrichPlugins(),
-    loadPipelinePlugins(),
   ]);
   const { sites, sources: sourcePlugins } = siteResult;
   setLoadedSites(sites);

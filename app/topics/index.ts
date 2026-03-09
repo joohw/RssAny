@@ -4,7 +4,7 @@ import { mkdir, stat, writeFile, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { runDigestAgent, isDateKey } from "./agent.js";
 import { logger } from "../core/logger/index.js";
-import { getSystemTags, getTagPeriods } from "../db/index.js";
+import { getTopics } from "../db/index.js";
 import { queryItems, getItemsForDate } from "../db/index.js";
 
 
@@ -130,43 +130,52 @@ async function doGenerateDaily(
 
 async function doGenerateTopic(
   cacheDir: string,
-  topic: string,
+  topicKey: string,
   filePath: string
 ): Promise<{ key: string; skipped: boolean; path: string }> {
-  const periods = await getTagPeriods();
-  const periodDays = Math.max(1, periods[topic] ?? 1);
+  const topics = await getTopics();
+  const topicConfig = topics.find((t) => t.title === topicKey);
+  const periodDays = Math.max(1, topicConfig?.refresh ?? 1);
+  const searchTags = (topicConfig?.tags?.length ? topicConfig.tags : [topicKey]) as string[];
+  const prompt = topicConfig?.prompt ?? "";
+
   const since = new Date();
   since.setDate(since.getDate() - periodDays);
   const until = new Date();
   until.setDate(until.getDate() + 1);
 
   const result = await queryItems({
-    tags: [topic],
+    tags: searchTags,
     since,
     until,
     limit: 1,
     offset: 0,
   });
   if (result.items.length === 0 && result.total === 0) {
-    logger.info("daily", "该话题近期无文章，跳过生成", { topic, periodDays });
-    return { key: topic, skipped: true, path: filePath };
+    logger.info("daily", "该话题近期无文章，跳过生成", { topic: topicKey, periodDays });
+    return { key: topicKey, skipped: true, path: filePath };
   }
-  logger.info("daily", "开始生成话题报告（Agent）", { topic, periodDays, itemCount: result.total });
+  logger.info("daily", "开始生成话题报告（Agent）", { topic: topicKey, periodDays, itemCount: result.total });
 
-  const previousArticle = await readDigest(cacheDir, topic);
+  const previousArticle = await readDigest(cacheDir, topicKey);
   let agentContent: string;
   try {
-    agentContent = await runDigestAgent(topic, { periodDays, previousArticle });
+    agentContent = await runDigestAgent(topicKey, {
+      periodDays,
+      previousArticle,
+      searchTags,
+      prompt,
+    });
   } catch (err) {
-    logger.error("daily", "话题报告生成失败", { topic, err: err instanceof Error ? err.message : String(err) });
+    logger.error("daily", "话题报告生成失败", { topic: topicKey, err: err instanceof Error ? err.message : String(err) });
     throw err;
   }
   const now = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  const header = `# 话题追踪 · ${topic}\n\n> Agent 生成于 ${now}，共整理 ${result.total} 篇相关文章（周期 ${periodDays} 天）\n\n`;
+  const header = `# 话题追踪 · ${topicKey}\n\n> Agent 生成于 ${now}，共整理 ${result.total} 篇相关文章（周期 ${periodDays} 天）\n\n`;
   await mkdir(join(cacheDir, TOPICS_SUBDIR), { recursive: true });
   await writeFile(filePath, header + agentContent, "utf-8");
-  logger.info("daily", "话题报告生成完成", { topic, path: filePath });
-  return { key: topic, skipped: false, path: filePath };
+  logger.info("daily", "话题报告生成完成", { topic: topicKey, path: filePath });
+  return { key: topicKey, skipped: false, path: filePath };
 }
 
 /**
@@ -186,18 +195,18 @@ export async function generateTopicDigest(
  * 为所有追踪话题生成报告（供调度器调用）
  */
 export async function generateAllTopicDigests(cacheDir: string): Promise<void> {
-  const tags = await getSystemTags();
-  if (tags.length === 0) {
+  const topics = await getTopics();
+  if (topics.length === 0) {
     logger.debug("topics", "暂无追踪话题，跳过");
     return;
   }
 
-  for (const topic of tags) {
+  for (const topic of topics) {
     try {
-      await generateTopicDigest(cacheDir, topic, false);
+      await generateTopicDigest(cacheDir, topic.title, false);
     } catch (err) {
       logger.error("topics", "话题报告生成失败，继续下一话题", {
-        topic,
+        topic: topic.title,
         err: err instanceof Error ? err.message : String(err),
       });
     }

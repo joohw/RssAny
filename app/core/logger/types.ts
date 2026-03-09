@@ -15,7 +15,6 @@ export type LogCategory =
   | "llm"      // LLM 调用
   | "app"      // HTTP 服务、启动、隧道
   | "config"   // 配置与迁移
-  | "writer"   // 写文件模块（条目落盘到配置目录）
   | "pipeline" // 入库前处理链（翻译、打标签等）
   | "daily"    // 每日日报生成
   | "topics";  // 话题追踪报告生成

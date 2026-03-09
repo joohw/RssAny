@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
 import { normalizeAuthor } from "../types/feedItem.js";
 import type { LogEntry } from "../core/logger/types.js";
-import { DATA_DIR, TAGS_CONFIG_PATH } from "../config/paths.js";
+import { DATA_DIR, TOPICS_CONFIG_PATH } from "../config/paths.js";
 
 let _db: Database.Database | null = null;
 const DATE_ONLY_TITLE_RE =
@@ -651,54 +651,90 @@ export async function queryLogs(opts: {
 }
 
 
-/** 返回用户管理的系统标签（来自 .rssany/tags.json），供 pipeline tagger 参考 */
-export async function getSystemTags(): Promise<string[]> {
+/** 话题配置：title 必选，tags 用于匹配，prompt 供 Agent 参考，refresh 为报告刷新周期（天） */
+export interface Topic {
+  title: string;
+  tags?: string[];
+  prompt?: string;
+  refresh?: number;
+}
+
+/** 读取话题列表（来自 .rssany/topics.json）；无文件或解析失败返回 [] */
+export async function getTopics(): Promise<Topic[]> {
   try {
-    const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
-    const parsed = JSON.parse(raw) as { tags?: string[] };
-    if (!Array.isArray(parsed?.tags)) return [];
-    return parsed.tags.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim());
+    const raw = await readFile(TOPICS_CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as { topics?: unknown[] };
+    if (!Array.isArray(parsed?.topics)) return [];
+    const rawTopics = parsed.topics.filter(
+      (t): t is Record<string, unknown> => t != null && typeof t === "object" && typeof (t as { title?: unknown }).title === "string"
+    );
+    const topics: Topic[] = [];
+    for (const t of rawTopics) {
+      const title = String((t as { title: string }).title).trim();
+      if (!title) continue;
+      const tags = Array.isArray((t as { tags?: unknown }).tags)
+        ? (t as { tags: unknown[] }).tags.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
+        : [title];
+      const prompt = typeof (t as { prompt?: unknown }).prompt === "string" ? (t as { prompt: string }).prompt : "";
+      const r = (t as { refresh?: unknown }).refresh;
+      const refresh = typeof r === "number" && !Number.isNaN(r) && r >= 1 ? Math.floor(r) : 1;
+      topics.push({ title, tags, prompt, refresh });
+    }
+    return topics;
   } catch {
     return [];
   }
 }
 
-/** 返回每个标签的 track 周期（天），默认 1 */
-export async function getTagPeriods(): Promise<Record<string, number>> {
-  try {
-    const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
-    const parsed = JSON.parse(raw) as { periods?: Record<string, number> };
-    const periods = parsed?.periods;
-    if (!periods || typeof periods !== "object") return {};
-    const out: Record<string, number> = {};
-    for (const [k, v] of Object.entries(periods)) {
-      const n = Number(v);
-      if (typeof k === "string" && k.trim() && !Number.isNaN(n) && n >= 1) {
-        out[k.trim()] = Math.floor(n);
-      }
-    }
-    return out;
-  } catch {
-    return {};
-  }
+/** 保存话题列表到 .rssany/topics.json */
+export async function saveTopics(topics: Topic[]): Promise<void> {
+  const list = topics
+    .filter((t) => t && typeof t.title === "string" && t.title.trim())
+    .map((t) => ({
+      title: t.title.trim(),
+      tags: Array.isArray(t.tags) && t.tags.length > 0
+        ? t.tags.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim())
+        : [t.title.trim()],
+      prompt: typeof t.prompt === "string" ? t.prompt : "",
+      refresh: typeof t.refresh === "number" && t.refresh >= 1 ? Math.floor(t.refresh) : 1,
+    }));
+  await writeFile(TOPICS_CONFIG_PATH, JSON.stringify({ topics: list }, null, 2), "utf-8");
 }
 
-/** 保存系统标签到 .rssany/tags.json；periods 为每个标签的 track 周期（天），默认 1 */
+/** 返回用户管理的系统标签（来自所有话题的 tags 并集），供 pipeline tagger 参考 */
+export async function getSystemTags(): Promise<string[]> {
+  const topics = await getTopics();
+  const set = new Set<string>();
+  for (const t of topics) {
+    const tags = Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.title];
+    for (const tag of tags) if (tag.trim()) set.add(tag.trim());
+  }
+  return Array.from(set);
+}
+
+/** 返回每个话题的 refresh 周期（天），key 为 topic.title，默认 1 */
+export async function getTagPeriods(): Promise<Record<string, number>> {
+  const topics = await getTopics();
+  const out: Record<string, number> = {};
+  for (const t of topics) {
+    out[t.title] = Math.max(1, Math.floor(Number(t.refresh)) || 1);
+  }
+  return out;
+}
+
+/** @deprecated 使用 saveTopics；保留用于兼容旧 API */
 export async function saveSystemTags(
   tags: string[],
   periods?: Record<string, number>,
 ): Promise<void> {
   const list = tags.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim());
-  const payload: { tags: string[]; periods?: Record<string, number> } = { tags: list };
-  if (periods && Object.keys(periods).length > 0) {
-    const cleaned: Record<string, number> = {};
-    for (const [k, v] of Object.entries(periods)) {
-      const n = Number(v);
-      if (k.trim() && !Number.isNaN(n) && n >= 1) cleaned[k.trim()] = Math.floor(n);
-    }
-    payload.periods = cleaned;
-  }
-  await writeFile(TAGS_CONFIG_PATH, JSON.stringify(payload, null, 2), "utf-8");
+  const topics: Topic[] = list.map((title) => ({
+    title,
+    tags: [title],
+    prompt: "",
+    refresh: Math.max(1, Math.floor(Number(periods?.[title])) || 1),
+  }));
+  await saveTopics(topics);
 }
 
 /** 每个系统标签的统计：文章数量 + 热度 + track 周期（天） */
@@ -709,6 +745,12 @@ export interface TagStat {
   period?: number;
 }
 
+/** 话题统计（含配置字段） */
+export interface TopicStat extends Topic {
+  count: number;
+  hotness: number;
+}
+
 /** 热度公式：每条带该 tag 的文章贡献 1/(1 + days_ago/7)，越新贡献越大 */
 function recencyFactor(pubDateMs: number | null, fetchedAtMs: number, nowMs: number): number {
   const ref = pubDateMs ?? fetchedAtMs;
@@ -716,52 +758,63 @@ function recencyFactor(pubDateMs: number | null, fetchedAtMs: number, nowMs: num
   return 1 / (1 + Math.max(0, daysAgo) / 7);
 }
 
-/** 返回系统标签及其统计：文章数量、热度（数量 × 新鲜度加权） */
-export async function getTagStats(): Promise<TagStat[]> {
-  const systemTags = await getSystemTags();
-  if (systemTags.length === 0) return [];
+/** 判断文章 tags 是否与话题的 tags 有交集 */
+function itemMatchesTopic(itemTags: string[], topicTags: string[]): boolean {
+  const itemLower = new Set(itemTags.map((t) => String(t).trim().toLowerCase()));
+  for (const t of topicTags) {
+    if (itemLower.has(t.trim().toLowerCase())) return true;
+  }
+  return false;
+}
+
+/** 返回话题列表及其统计（文章数量、热度，基于话题 tags 匹配） */
+export async function getTopicStats(): Promise<TopicStat[]> {
+  const topics = await getTopics();
+  if (topics.length === 0) return [];
 
   const db = await getDb();
   const rows = db
     .prepare("SELECT tags, pub_date, fetched_at FROM items WHERE tags IS NOT NULL AND tags != ''")
     .all() as { tags: string; pub_date: string | null; fetched_at: string }[];
 
-  const tagCount = new Map<string, number>();
-  const tagHotness = new Map<string, number>();
-  const systemLower = new Map(systemTags.map((t) => [t.toLowerCase(), t]));
-
-  for (const t of systemTags) {
-    tagCount.set(t, 0);
-    tagHotness.set(t, 0);
-  }
-
   const now = Date.now();
-  for (const row of rows) {
-    let tags: string[];
-    try {
-      tags = JSON.parse(row.tags) as string[];
-    } catch {
-      continue;
-    }
-    const pubMs = row.pub_date ? Date.parse(row.pub_date) : null;
-    const fetchedMs = Date.parse(row.fetched_at);
-    const factor = recencyFactor(pubMs, fetchedMs, now);
-
-    for (const t of tags) {
-      const canonical = systemLower.get(String(t).trim().toLowerCase());
-      if (canonical) {
-        tagCount.set(canonical, (tagCount.get(canonical) ?? 0) + 1);
-        tagHotness.set(canonical, (tagHotness.get(canonical) ?? 0) + factor);
+  const topicStats = topics.map((t) => {
+    const tags = Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.title];
+    let count = 0;
+    let hotness = 0;
+    for (const row of rows) {
+      let itemTags: string[];
+      try {
+        itemTags = JSON.parse(row.tags) as string[];
+      } catch {
+        continue;
       }
+      if (!itemMatchesTopic(itemTags, tags)) continue;
+      count += 1;
+      const pubMs = row.pub_date ? Date.parse(row.pub_date) : null;
+      const fetchedMs = Date.parse(row.fetched_at);
+      hotness += recencyFactor(pubMs, fetchedMs, now);
     }
-  }
+    return {
+      ...t,
+      tags,
+      refresh: t.refresh ?? 1,
+      count,
+      hotness: Math.round(hotness * 100) / 100,
+    };
+  });
 
-  const periods = await getTagPeriods();
-  return systemTags.map((name) => ({
-    name,
-    count: tagCount.get(name) ?? 0,
-    hotness: Math.round((tagHotness.get(name) ?? 0) * 100) / 100,
-    period: periods[name] ?? 1,
+  return topicStats;
+}
+
+/** @deprecated 使用 getTopicStats；返回兼容 TagStat 格式（按 topic.title） */
+export async function getTagStats(): Promise<TagStat[]> {
+  const stats = await getTopicStats();
+  return stats.map((s) => ({
+    name: s.title,
+    count: s.count,
+    hotness: s.hotness,
+    period: s.refresh ?? 1,
   }));
 }
 

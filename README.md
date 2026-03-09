@@ -277,33 +277,25 @@ export default {
 };
 ```
 
-### Pipeline 插件示例
+### Pipeline（固定流程 + 配置开关）
 
-在 `.rssany/plugins/pipeline/` 下创建 `*.rssany.js`，可用于翻译、自定义打标签等：
+Pipeline 位于 `app/pipeline/`，步骤开关与排序由 `.rssany/config.json` 的 `pipeline.steps` 配置：
 
-```javascript
-export default {
-  id: "my-tagger",
-
-  match(item, ctx) {
-    // 跳过已有 tags 的条目
-    return !item.tags?.length;
-  },
-
-  async run(item, ctx) {
-    // ctx.llm 可用于调用 LLM
-    // ctx.db.getSystemTags() 获取系统标签库
-    item.tags = ["my-tag"];
-    return item;
-  },
-};
+```json
+{
+  "pipeline": {
+    "steps": [
+      { "id": "tagger", "enabled": true },
+      { "id": "translator", "enabled": false }
+    ]
+  }
+}
 ```
 
-内置 pipeline 插件：
-- `tagger.rssany.js`：从系统标签库自动匹配标签
-- `translator.rssany.js`：将标题、摘要、正文翻译为中文（`lng=zh-CN` 时输出译文）
+- **tagger**：从系统标签库（话题 tags 并集）自动匹配标签
+- **translator**：将标题、摘要、正文翻译为中文（`lng=zh-CN` 时输出译文）
 
-配置 `OPENAI_API_KEY` 后开箱即用。
+`steps` 数组顺序即执行顺序，`enabled: false` 的步骤跳过。API：`GET/PUT /api/pipeline`。配置 `OPENAI_API_KEY` 后开箱即用。
 
 详细插件规范见 [AGENTS.MD](./AGENTS.MD)。
 
@@ -320,8 +312,7 @@ export default {
 │   ├── plugins/      插件加载器
 │   ├── router/       HTTP 路由层（Hono）
 │   ├── scraper/      抓取与信源（web / api / email / enrich）
-│   ├── types/        FeedItem 等类型定义
-│   └── writer/       条目写文件模块
+│   └── types/        FeedItem 等类型定义
 ├── plugins/          内置插件
 │   ├── sources/      内置 Source 插件
 │   ├── enrich/       内置 Enrich 插件
