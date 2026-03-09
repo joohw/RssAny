@@ -181,7 +181,7 @@
   <div class="col">
     <div class="header">
       <div class="header-left">
-        <a href="/tags" class="back-link" title="返回话题">← 话题</a>
+        <a href="/topics" class="back-link" title="返回话题">← 话题</a>
         <h2>{topic}</h2>
         {#if dates.length > 0}
           <div class="nav-bar">

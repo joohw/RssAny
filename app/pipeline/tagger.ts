@@ -9,8 +9,9 @@
 
 import type { FeedItem } from "../types/feedItem.js";
 
-const SYSTEM = `你是一个信息分类助手。根据文章标题和摘要，从候选标签库中选出 5-10 个最匹配的标签。
+const SYSTEM = `你是一个信息分类助手。根据文章标题和摘要，从候选标签库中选出最匹配的标签，最多 5 个。
 - 只能使用候选标签库中已有的标签，不要输出库中不存在的标签。
+- 如果没有合适的标签，输出空数组 {"tags": []}，不要硬选不相关的标签。
 - 只输出 JSON，格式：{"tags": ["tag1", "tag2", ...]}`;
 
 export interface TaggerContext {

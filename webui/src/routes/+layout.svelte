@@ -7,7 +7,7 @@
 
   const navLinks: NavLink[] = [
     { href: '/feeds?channel=all', label: 'Feeds' },
-    { href: '/tags', label: 'Topics' },
+    { href: '/topics', label: 'Topics' },
     { href: '/sources', label: 'Sources' },
     { href: '/agent', label: 'Ask' },
   ];
@@ -15,7 +15,7 @@
   function isActive(link: NavLink, pathname: string): boolean {
     if (link.href.startsWith('/feeds')) return pathname === '/feeds';
     if (link.href === '/agent') return pathname.startsWith('/agent');
-    if (link.href === '/tags') return pathname.startsWith('/tags') || pathname.startsWith('/topics');
+    if (link.href === '/topics') return pathname.startsWith('/topics');
     return pathname.startsWith(link.href);
   }
 </script>

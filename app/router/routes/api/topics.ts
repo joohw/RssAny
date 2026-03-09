@@ -1,7 +1,16 @@
 // /api/topics、/api/tags（deprecated）、/api/topics/:key
 
 import type { Hono } from "hono";
-import { saveTopics, getTopics, getTopicStats, getTagStats, getSuggestedTags } from "../../../db/index.js";
+import {
+  saveTopics,
+  getTopics,
+  getTopicStats,
+  getSuggestedTags,
+  getSystemTags,
+  getSystemTagStats,
+  saveSystemTagsToFile,
+  removeTagFromAllItems,
+} from "../../../db/index.js";
 import { CACHE_DIR } from "../../../config/paths.js";
 import { readDigest, listDigestDates, generateDigest } from "../../../topics/index.js";
 
@@ -54,47 +63,58 @@ export function registerTopicsRoutes(app: Hono): void {
     }
   });
 
-  /** @deprecated 使用 /api/topics；兼容旧格式 */
+  /** 系统标签：来自 .rssany/tags.json，供 pipeline tagger 使用 */
   app.get("/api/tags", async (c) => {
-    const [stats, suggested] = await Promise.all([getTagStats(), getSuggestedTags()]);
+    const [tags, stats, suggested] = await Promise.all([
+      getSystemTags(),
+      getSystemTagStats(),
+      getSuggestedTags(),
+    ]);
     return c.json({
-      tags: stats.map((s) => s.name),
-      stats: stats.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness, period: s.period ?? 1 })),
+      tags,
+      stats: stats.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
       suggestedTags: suggested.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
     });
   });
 
   app.put("/api/tags", async (c) => {
     try {
-      const body = await c.req.json<{ tags?: string[]; periods?: Record<string, number>; topics?: Array<{ title: string; tags?: string[]; prompt?: string; refresh?: number }> }>();
-      if (Array.isArray(body?.topics)) {
-        const topics = body.topics
-          .filter((t) => t && typeof t.title === "string" && t.title.trim())
-          .map((t) => ({
-            title: t.title.trim(),
-            tags: Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.title.trim()],
-            prompt: typeof t.prompt === "string" ? t.prompt : "",
-            refresh: typeof t.refresh === "number" && t.refresh >= 1 ? Math.floor(t.refresh) : 1,
-          }));
-        await saveTopics(topics);
-      } else {
-        const list = Array.isArray(body?.tags) ? body.tags : [];
-        const periods = body?.periods && typeof body.periods === "object" ? body.periods : undefined;
-        const topics = list
-          .filter((t) => typeof t === "string" && t.trim())
-          .map((title) => ({
-            title: title.trim(),
-            tags: [title.trim()],
-            prompt: "",
-            refresh: Math.max(1, Math.floor(Number(periods?.[title])) || 1),
-          }));
-        await saveTopics(topics);
-      }
-      const [stats, suggested] = await Promise.all([getTagStats(), getSuggestedTags()]);
+      const body = await c.req.json<{ tags?: string[] }>();
+      const list = Array.isArray(body?.tags) ? body.tags : [];
+      await saveSystemTagsToFile(list);
+      const [tags, stats, suggested] = await Promise.all([
+        getSystemTags(),
+        getSystemTagStats(),
+        getSuggestedTags(),
+      ]);
       return c.json({
         ok: true,
-        tags: stats.map((s) => s.name),
-        stats: stats.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness, period: s.period ?? 1 })),
+        tags,
+        stats: stats.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
+        suggestedTags: suggested.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
+      });
+    } catch (err) {
+      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  });
+
+  /** 从所有条目的 tags 中移除指定标签 */
+  app.post("/api/tags/remove-from-items", async (c) => {
+    try {
+      const body = await c.req.json<{ tag?: string }>();
+      const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
+      if (!tag) return c.json({ ok: false, message: "tag 参数缺失" }, 400);
+      const count = await removeTagFromAllItems(tag);
+      const [tags, stats, suggested] = await Promise.all([
+        getSystemTags(),
+        getSystemTagStats(),
+        getSuggestedTags(),
+      ]);
+      return c.json({
+        ok: true,
+        removedCount: count,
+        tags,
+        stats: stats.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
         suggestedTags: suggested.map((s) => ({ name: s.name, count: s.count, hotness: s.hotness })),
       });
     } catch (err) {

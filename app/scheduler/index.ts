@@ -52,7 +52,7 @@ interface QueuedItem {
 
 
 const tasks = new Map<string, RegisteredTask>();
-const groups = new Map<string, { config: GroupConfig; running: number; queue: QueuedItem[] }>();
+const groups = new Map<string, { config: GroupConfig; running: number; queue: QueuedItem[]; completedCount: number }>();
 const DEFAULT_RETRY_DELAY_MS = 5000;
 
 
@@ -101,9 +101,11 @@ async function runWithRetryAndResult<T>(
 
 function ensureGroup(group: string, concurrency: number): void {
   if (!groups.has(group)) {
-    groups.set(group, { config: { concurrency }, running: 0, queue: [] });
+    groups.set(group, { config: { concurrency }, running: 0, queue: [], completedCount: 0 });
   } else {
-    groups.get(group)!.config.concurrency = concurrency;
+    const g = groups.get(group)!;
+    g.config.concurrency = concurrency;
+    if (g.completedCount === undefined) g.completedCount = 0;
   }
 }
 
@@ -137,6 +139,7 @@ function processGroupQueue(group: string): void {
   g.running += 1;
   const done = () => {
     g.running -= 1;
+    g.completedCount = (g.completedCount ?? 0) + 1;
     processGroupQueue(group);
   };
   if (item.resolveValue != null || item.rejectValue != null) {
@@ -327,6 +330,8 @@ export interface GroupStats {
   concurrency: number;
   /** 该组下已注册的定时任务数量 */
   scheduledCount: number;
+  /** 已完成任务数（含定时任务每次执行 + 单次任务，进程启动后累计） */
+  completedCount: number;
 }
 
 
@@ -342,6 +347,7 @@ export function getGroupStats(): Record<string, GroupStats> {
       queued: g.queue.length,
       concurrency: g.config.concurrency,
       scheduledCount,
+      completedCount: g.completedCount ?? 0,
     };
   }
   return result;

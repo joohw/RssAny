@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Modal from './Modal.svelte';
-  import { fetchJson } from './fetchJson.js';
+  import { fetchJson } from '$lib/fetchJson.js';
 
   export let open = false;
   export let onClose: (() => void) | undefined = undefined;

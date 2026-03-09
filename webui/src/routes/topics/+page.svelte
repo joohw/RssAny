@@ -44,15 +44,15 @@
     try {
       const data = await fetchJson<{ stats?: TopicStat[] }>('/api/topics');
       const list = data?.stats ?? [];
-      cards = list        .map((s) => ({
-          title: s.title,
-          tags: s.tags ?? [s.title],
-          prompt: s.prompt ?? '',
-          refresh: s.refresh ?? 1,
-          count: s.count,
-          hotness: s.hotness,
-          articleHref: '/topics/' + encodeURIComponent(s.title),
-        }));
+      cards = list.map((s) => ({
+        title: s.title,
+        tags: s.tags ?? [s.title],
+        prompt: s.prompt ?? '',
+        refresh: s.refresh ?? 1,
+        count: s.count,
+        hotness: s.hotness,
+        articleHref: '/topics/' + encodeURIComponent(s.title),
+      }));
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
       cards = [];

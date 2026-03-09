@@ -6,15 +6,34 @@
     queued: number;
     concurrency: number;
     scheduledCount: number;
+    completedCount?: number;
   }
 
-  const links = [
-    { href: '/admin/channels', label: '频道', desc: 'channels.json 配置编辑' },
-    { href: '/admin/plugins', label: '插件', desc: '已加载插件与登录状态' },
-    { href: '/admin/logs', label: '日志', desc: '系统运行日志' },
-    { href: '/admin/mcp', label: 'MCP', desc: 'MCP 接入配置说明' },
-    { href: '/admin/parse', label: 'Parse', desc: '从列表页解析条目，返回 JSON' },
-    { href: '/admin/extractor', label: 'Enrich', desc: '从详情页提取正文，返回 JSON' },
+  const groups = [
+    {
+      title: '管理',
+      links: [
+        { href: '/admin/channels', label: '频道', desc: '首页信息流分组与信源聚合' },
+        { href: '/admin/tags', label: '标签', desc: '系统标签库，新入库条目由 LLM 自动匹配打标签' },
+        { href: '/topics', label: '话题', desc: '话题追踪与报告生成' },
+        { href: '/admin/plugins', label: '插件', desc: '已加载插件与登录状态' },
+        { href: '/admin/logs', label: '日志', desc: '系统运行日志' },
+      ],
+    },
+    {
+      title: '集成',
+      links: [
+        { href: '/admin/mcp', label: 'MCP', desc: 'MCP 接入配置说明' },
+        { href: '/admin/distributed-crawler', label: '分布式爬虫', desc: '将爬虫 POST 端点指向当前服务器' },
+      ],
+    },
+    {
+      title: '调试',
+      links: [
+        { href: '/admin/parse', label: 'Parse', desc: '从列表页解析条目，返回 JSON' },
+        { href: '/admin/extractor', label: 'Enrich', desc: '从详情页提取正文，返回 JSON' },
+      ],
+    },
   ];
 
   let schedulerStats: Record<string, GroupStats> = {};
@@ -38,6 +57,8 @@
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer);
   });
+
+  const MAX_SLOTS = 5;
 </script>
 
 <svelte:head>
@@ -48,46 +69,52 @@
   <div class="feed-col">
     <div class="feed-header">
       <h2>设置</h2>
-      <p class="sub">频道、插件、日志、MCP、Parse、Enrich 管理入口</p>
+      <p class="sub">管理入口与调试工具</p>
     </div>
 
     <div class="body">
       {#if Object.keys(schedulerStats).length > 0}
         <section class="scheduler-section">
           <h3 class="section-title">调度任务</h3>
-          {#each Object.entries(schedulerStats) as [groupName, stats]}
-            <div class="group-card">
-              <div class="group-header">
-                <span class="group-name">{groupName}</span>
-                <span class="group-meta">
-                  执行中 {stats.running}/{stats.concurrency} · 排队 {stats.queued}
-                  {#if stats.scheduledCount > 0}
-                    · 定时 {stats.scheduledCount}
-                  {/if}
-                </span>
+          <div class="scheduler-card">
+            {#each Object.entries(schedulerStats) as [groupName, stats]}
+              {@const running = stats.running}
+              {@const completed = stats.completedCount ?? 0}
+              {@const slotCount = Math.min(stats.concurrency, MAX_SLOTS)}
+              <div class="scheduler-row">
+                <div class="scheduler-left">
+                  <span class="scheduler-name">{groupName}</span>
+                  <span class="scheduler-meta">
+                    执行中 {running}/{stats.concurrency} · 排队 {stats.queued} · 定时 {stats.scheduledCount} · 已完成 {completed}
+                  </span>
+                </div>
+                <div class="scheduler-slots">
+                  {#each Array(slotCount) as _, i}
+                    <span class="slot" class:filled={i < running}></span>
+                  {/each}
+                </div>
               </div>
-              <div class="progress-bar" role="progressbar" aria-valuenow={stats.running} aria-valuemin={0} aria-valuemax={stats.concurrency}>
-                <div class="progress-fill" style="width: {(stats.running / stats.concurrency) * 100}%"></div>
-              </div>
-            </div>
-          {/each}
+            {/each}
+          </div>
         </section>
       {/if}
 
-      <section class="links-section">
-        <h3 class="section-title">管理</h3>
-        <div class="links">
-          {#each links as link}
-            <a class="card" href={link.href}>
-              <div class="card-main">
-                <span class="card-label">{link.label}</span>
-                <span class="card-desc">{link.desc}</span>
-              </div>
-              <span class="card-arrow">›</span>
-            </a>
-          {/each}
-        </div>
-      </section>
+      {#each groups as group}
+        <section class="links-section">
+          <h3 class="section-title">{group.title}</h3>
+          <div class="links">
+            {#each group.links as link}
+              <a class="card" href={link.href}>
+                <div class="card-main">
+                  <span class="card-label">{link.label}</span>
+                  <span class="card-desc">{link.desc}</span>
+                </div>
+                <span class="card-arrow">›</span>
+              </a>
+            {/each}
+          </div>
+        </section>
+      {/each}
     </div>
   </div>
 </div>
@@ -143,44 +170,61 @@
   .scheduler-section {
     margin-bottom: 1.25rem;
   }
-  .group-card {
-    padding: 0.75rem 1rem;
+  .scheduler-card {
+    padding: 0;
     background: #f9fafb;
     border: 1px solid #e5e7eb;
     border-radius: 6px;
-    margin-bottom: 0.5rem;
+    overflow: hidden;
   }
-  .group-header {
+  .scheduler-row {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    margin-bottom: 0.5rem;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e5e7eb;
   }
-  .group-name {
+  .scheduler-row:last-child {
+    border-bottom: none;
+  }
+  .scheduler-left {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .scheduler-name {
     font-weight: 600;
     font-size: 0.875rem;
     color: #111;
   }
-  .group-meta {
+  .scheduler-meta {
     font-size: 0.75rem;
     color: #6b7280;
   }
-  .progress-bar {
-    height: 4px;
-    background: #e5e7eb;
-    border-radius: 2px;
-    overflow: hidden;
+  .scheduler-slots {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
   }
-  .progress-fill {
-    height: 100%;
-    background: #0969da;
-    border-radius: 2px;
-    transition: width 0.2s;
+  .slot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    transition: background 0.2s;
+  }
+  .slot.filled {
+    background: #22c55e;
   }
 
   .links-section {
+    margin-bottom: 1.25rem;
+  }
+  .links-section:last-child {
     margin-bottom: 0.5rem;
   }
   .links {

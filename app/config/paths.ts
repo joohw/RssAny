@@ -29,7 +29,7 @@ export const SOURCES_CONFIG_PATH = join(USER_DIR, "sources.json");
 export const CHANNELS_CONFIG_PATH = join(USER_DIR, "channels.json");
 
 
-/** 系统标签配置：.rssany/tags.json（已废弃，迁移至 topics.json） */
+/** 系统标签配置：.rssany/tags.json（供 pipeline tagger 使用） */
 export const TAGS_CONFIG_PATH = join(USER_DIR, "tags.json");
 
 /** 话题配置：.rssany/topics.json（title、tags、prompt、refresh） */
@@ -125,7 +125,7 @@ export async function initUserDir(): Promise<void> {
       logger.warn("config", "生成 channels.json 失败", { err: err instanceof Error ? err.message : String(err) });
     }
   }
-  // 迁移 tags.json → topics.json（旧格式：{ tags, periods } → 新格式：{ topics: [{ title, tags, prompt, refresh }] }）
+  // 迁移 tags.json（旧格式）→ topics.json
   if (!(await pathExists(TOPICS_CONFIG_PATH)) && (await pathExists(TAGS_CONFIG_PATH))) {
     try {
       const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
@@ -145,6 +145,23 @@ export async function initUserDir(): Promise<void> {
       logger.info("config", "已从 tags.json 迁移至 topics.json", { count: topics.length });
     } catch (err) {
       logger.warn("config", "tags.json 迁移至 topics.json 失败", { err: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // 若 tags.json 不存在但 topics.json 存在，从话题 tags 并集初始化 tags.json
+  if (!(await pathExists(TAGS_CONFIG_PATH)) && (await pathExists(TOPICS_CONFIG_PATH))) {
+    try {
+      const raw = await readFile(TOPICS_CONFIG_PATH, "utf-8");
+      const parsed = JSON.parse(raw) as { topics?: Array<{ tags?: string[]; title?: string }> };
+      const tags = new Set<string>();
+      for (const t of parsed?.topics ?? []) {
+        const list = Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : (t.title ? [t.title] : []);
+        for (const tag of list) if (tag?.trim()) tags.add(tag.trim());
+      }
+      await writeFile(TAGS_CONFIG_PATH, JSON.stringify({ tags: Array.from(tags) }, null, 2), "utf-8");
+      logger.info("config", "已从 topics.json 初始化 tags.json", { count: tags.size });
+    } catch (err) {
+      logger.warn("config", "从 topics 初始化 tags.json 失败", { err: err instanceof Error ? err.message : String(err) });
     }
   }
 

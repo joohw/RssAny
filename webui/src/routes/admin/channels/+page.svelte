@@ -105,7 +105,7 @@
       <div class="header-left">
         <h2>频道</h2>
         <p class="page-desc">
-          频道配置仅支持 JSON 编辑，直接调整 <code>channels.json</code> 内容。
+          频道配置仅支持 JSON 编辑，用于首页信息流分组与信源聚合。
         </p>
       </div>
       <div class="header-actions">

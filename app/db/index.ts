@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { FeedItem } from "../types/feedItem.js";
 import { normalizeAuthor } from "../types/feedItem.js";
 import type { LogEntry } from "../core/logger/types.js";
-import { DATA_DIR, TOPICS_CONFIG_PATH } from "../config/paths.js";
+import { DATA_DIR, TOPICS_CONFIG_PATH, TAGS_CONFIG_PATH } from "../config/paths.js";
 
 let _db: Database.Database | null = null;
 const DATE_ONLY_TITLE_RE =
@@ -534,6 +534,39 @@ export async function queryItems(opts: {
 }
 
 
+/** 从所有条目的 tags 中移除指定标签（不区分大小写），返回更新的条目数 */
+export async function removeTagFromAllItems(tag: string): Promise<number> {
+  const trimmed = String(tag ?? "").trim();
+  if (!trimmed) return 0;
+  const targetLower = trimmed.toLowerCase();
+
+  const db = await getDb();
+  const rows = db
+    .prepare("SELECT id, tags FROM items WHERE tags IS NOT NULL AND tags != ''")
+    .all() as { id: string; tags: string }[];
+
+  const updateStmt = db.prepare("UPDATE items SET tags = @tags WHERE id = @id");
+  let count = 0;
+  const run = db.transaction(() => {
+    for (const row of rows) {
+      let itemTags: string[];
+      try {
+        itemTags = JSON.parse(row.tags) as string[];
+      } catch {
+        continue;
+      }
+      const filtered = itemTags.filter((t) => String(t).trim().toLowerCase() !== targetLower);
+      if (filtered.length === itemTags.length) continue;
+      const nextTags = filtered.length > 0 ? JSON.stringify(filtered) : null;
+      updateStmt.run({ id: row.id, tags: nextTags });
+      count += 1;
+    }
+  });
+  run();
+  return count;
+}
+
+
 /** 标记条目已推送给 OpenWebUI（更新 pushed_at 字段） */
 export async function markPushed(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
@@ -701,15 +734,73 @@ export async function saveTopics(topics: Topic[]): Promise<void> {
   await writeFile(TOPICS_CONFIG_PATH, JSON.stringify({ topics: list }, null, 2), "utf-8");
 }
 
-/** 返回用户管理的系统标签（来自所有话题的 tags 并集），供 pipeline tagger 参考 */
+/** 返回用户管理的系统标签（来自 .rssany/tags.json），供 pipeline tagger 参考 */
 export async function getSystemTags(): Promise<string[]> {
-  const topics = await getTopics();
-  const set = new Set<string>();
-  for (const t of topics) {
-    const tags = Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : [t.title];
-    for (const tag of tags) if (tag.trim()) set.add(tag.trim());
+  try {
+    const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as { tags?: unknown[] };
+    if (!Array.isArray(parsed?.tags)) return [];
+    return parsed.tags
+      .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+      .map((t) => t.trim());
+  } catch {
+    return [];
   }
-  return Array.from(set);
+}
+
+/** 保存系统标签到 .rssany/tags.json */
+export async function saveSystemTagsToFile(tags: string[]): Promise<void> {
+  const list = tags
+    .filter((t) => typeof t === "string" && t.trim())
+    .map((t) => t.trim());
+  await writeFile(TAGS_CONFIG_PATH, JSON.stringify({ tags: list }, null, 2), "utf-8");
+}
+
+/** 返回系统标签及其统计（文章数量、热度），基于 tags.json + DB */
+export async function getSystemTagStats(): Promise<TagStat[]> {
+  const systemTags = await getSystemTags();
+  if (systemTags.length === 0) return [];
+
+  const db = await getDb();
+  const rows = db
+    .prepare("SELECT tags, pub_date, fetched_at FROM items WHERE tags IS NOT NULL AND tags != ''")
+    .all() as { tags: string; pub_date: string | null; fetched_at: string }[];
+
+  const now = Date.now();
+  const tagMap = new Map<string, { count: number; hotness: number }>();
+  for (const name of systemTags) {
+    tagMap.set(name.toLowerCase(), { count: 0, hotness: 0 });
+  }
+
+  for (const row of rows) {
+    let itemTags: string[];
+    try {
+      itemTags = JSON.parse(row.tags) as string[];
+    } catch {
+      continue;
+    }
+    const pubMs = row.pub_date ? Date.parse(row.pub_date) : null;
+    const fetchedMs = Date.parse(row.fetched_at);
+    const factor = recencyFactor(pubMs, fetchedMs, now);
+
+    for (const t of itemTags) {
+      const key = String(t).trim().toLowerCase();
+      const entry = tagMap.get(key);
+      if (entry) {
+        entry.count += 1;
+        entry.hotness += factor;
+      }
+    }
+  }
+
+  return systemTags.map((name) => {
+    const entry = tagMap.get(name.toLowerCase()) ?? { count: 0, hotness: 0 };
+    return {
+      name,
+      count: entry.count,
+      hotness: Math.round(entry.hotness * 100) / 100,
+    };
+  });
 }
 
 /** 返回每个话题的 refresh 周期（天），key 为 topic.title，默认 1 */
@@ -722,20 +813,6 @@ export async function getTagPeriods(): Promise<Record<string, number>> {
   return out;
 }
 
-/** @deprecated 使用 saveTopics；保留用于兼容旧 API */
-export async function saveSystemTags(
-  tags: string[],
-  periods?: Record<string, number>,
-): Promise<void> {
-  const list = tags.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim());
-  const topics: Topic[] = list.map((title) => ({
-    title,
-    tags: [title],
-    prompt: "",
-    refresh: Math.max(1, Math.floor(Number(periods?.[title])) || 1),
-  }));
-  await saveTopics(topics);
-}
 
 /** 每个系统标签的统计：文章数量 + 热度 + track 周期（天） */
 export interface TagStat {

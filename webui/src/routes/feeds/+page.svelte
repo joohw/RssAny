@@ -2,8 +2,8 @@
   import { onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { goto, beforeNavigate } from '$app/navigation';
-  import FeedCard from '$lib/FeedCard.svelte';
-  import TagSelectDialog from '$lib/TagSelectDialog.svelte';
+  import FeedCard from '$lib/components/ui/FeedCard.svelte';
+  import TagSelectDialog from '$lib/components/ui/TagSelectDialog.svelte';
 
   interface FeedItem {
     guid?: string;
