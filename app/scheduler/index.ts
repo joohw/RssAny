@@ -302,10 +302,14 @@ export interface GroupStats {
 
 function getNextRunForTask(reg: RegisteredTask): number {
   try {
-    const expr = CronExpressionParser.parse(reg.cronExpr, {
-      currentDate: reg.lastRunTime ? new Date(reg.lastRunTime) : new Date(),
-    });
-    return expr.next().getTime();
+    const base = reg.lastRunTime > 0 ? new Date(reg.lastRunTime) : new Date();
+    const expr = CronExpressionParser.parse(reg.cronExpr, { currentDate: base });
+    let next = expr.next().getTime();
+    if (next <= Date.now()) {
+      const retry = CronExpressionParser.parse(reg.cronExpr, { currentDate: new Date() });
+      next = retry.next().getTime();
+    }
+    return next;
   } catch {
     return -1;
   }

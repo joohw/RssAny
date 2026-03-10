@@ -18,6 +18,7 @@
     const d = new Date(nextRunTime);
     const now = Date.now();
     const diff = nextRunTime - now;
+    if (diff <= 0) return '· 即将执行';
     if (diff < 60000) return `· 约 ${Math.round(diff / 1000)} 秒后`;
     if (diff < 3600000) return `· 约 ${Math.round(diff / 60000)} 分钟后`;
     const timeStr = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
