@@ -10,6 +10,14 @@ import { queryItems } from "../db/index.js";
 
 const ARTICLES_DIR = "articles";
 
+export interface DigestGenerateResult {
+  key: string;
+  skipped: boolean;
+  path: string;
+  reason?: "exists" | "no-items";
+  message?: string;
+}
+
 
 /** 话题名转安全的文件名（保留中文等，仅替换路径非法字符） */
 function topicToFilename(topic: string): string {
@@ -109,11 +117,17 @@ export async function generateDigest(
   cacheDir: string,
   key: string,
   force = false
-): Promise<{ key: string; skipped: boolean; path: string }> {
+): Promise<DigestGenerateResult> {
   const filePath = digestFilePath(cacheDir, key);
   if (!force && await digestExists(cacheDir, key)) {
     logger.debug("topics", "报告已存在，跳过生成", { key });
-    return { key, skipped: true, path: filePath };
+    return {
+      key,
+      skipped: true,
+      path: filePath,
+      reason: "exists",
+      message: "当日报告已存在，已跳过生成",
+    };
   }
   return doGenerateTopic(cacheDir, key, filePath);
 }
@@ -122,7 +136,7 @@ async function doGenerateTopic(
   cacheDir: string,
   topicKey: string,
   filePath: string
-): Promise<{ key: string; skipped: boolean; path: string }> {
+): Promise<DigestGenerateResult> {
   const topics = await getTopics();
   const topicConfig = topics.find((t) => t.title === topicKey);
   const periodDays = Math.max(1, topicConfig?.refresh ?? 1);
@@ -143,11 +157,12 @@ async function doGenerateTopic(
     limit: 1,
     offset: 0,
   });
-  if (result.items.length === 0 && result.total === 0) {
-    logger.info("topics", "该话题近期无文章，跳过生成", { topic: topicKey, periodDays });
-    return { key: topicKey, skipped: true, path: filePath };
-  }
-  logger.info("topics", "开始生成话题报告（Agent）", { topic: topicKey, periodDays, itemCount: result.total });
+  logger.info("topics", "开始生成话题报告（Agent）", {
+    topic: topicKey,
+    periodDays,
+    preflightMatchCount: result.total,
+    usedTags: searchTagsForPrompt,
+  });
 
   const prevDigest = await readDigest(cacheDir, topicKey);
   const previousArticle = prevDigest?.content ?? null;
@@ -158,13 +173,17 @@ async function doGenerateTopic(
       previousArticle,
       searchTags: searchTagsForPrompt,
       prompt,
+      preflightMatchCount: result.total,
     });
   } catch (err) {
     logger.error("topics", "话题报告生成失败", { topic: topicKey, err: err instanceof Error ? err.message : String(err) });
     throw err;
   }
   const now = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  const header = `# 话题追踪 · ${topicKey}\n\n> Agent 生成于 ${now}，共整理 ${result.total} 篇相关文章（周期 ${periodDays} 天）\n\n`;
+  const preflightSummary = result.total > 0
+    ? `，预检匹配 ${result.total} 篇相关文章`
+    : "，预检未命中标签文章，已按时间范围扩展检索";
+  const header = `# 话题追踪 · ${topicKey}\n\n> Agent 生成于 ${now}，周期 ${periodDays} 天${preflightSummary}\n\n`;
   await mkdir(join(cacheDir, ARTICLES_DIR, topicToFilename(topicKey)), { recursive: true });
   await writeFile(filePath, header + agentContent, "utf-8");
   logger.info("topics", "话题报告生成完成", { topic: topicKey, path: filePath });
@@ -178,9 +197,15 @@ export async function generateTopicDigest(
   cacheDir: string,
   topic: string,
   force = false
-): Promise<{ topic: string; skipped: boolean; path: string }> {
+): Promise<{ topic: string; skipped: boolean; path: string; reason?: "exists" | "no-items"; message?: string }> {
   const result = await generateDigest(cacheDir, topic, force);
-  return { topic: result.key, skipped: result.skipped, path: result.path };
+  return {
+    topic: result.key,
+    skipped: result.skipped,
+    path: result.path,
+    reason: result.reason,
+    message: result.message,
+  };
 }
 
 

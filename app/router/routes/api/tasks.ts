@@ -38,7 +38,7 @@ export function registerTasksRoutes(app: Hono): void {
             taskStore.setTaskError(taskId, msg);
             throw err;
           }
-        }, {}).catch(() => {});
+        }, { priority: true }).catch(() => {});
         return c.json({ taskId });
       }
       return c.json({ error: `未知任务类型: ${type}` }, 400);

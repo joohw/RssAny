@@ -22,6 +22,8 @@ export interface ScheduleOptions {
   concurrency?: number;
   /** 定时任务：注册后是否立即执行一次，默认 false */
   runNow?: boolean;
+  /** 一次性任务：是否插队到队首，默认 false */
+  priority?: boolean;
   /** 分组名（内部使用，由 schedule 注入） */
   group?: string;
 }
@@ -175,7 +177,7 @@ function processGroupQueue(group: string): void {
  * @param group 分组名
  * @param id 任务唯一标识
  * @param task 异步任务函数
- * @param options cron 有值=定时任务，无值=一次性任务；可选 retries、retryDelayMs、concurrency、runNow
+ * @param options cron 有值=定时任务，无值=一次性任务；可选 retries、retryDelayMs、concurrency、runNow、priority
  */
 export function schedule(group: string, id: string, task: ScheduledTask, options: ScheduleOptions & { cron: string }): boolean;
 export function schedule<T>(group: string, id: string, task: () => Promise<T>, options?: ScheduleOptions): Promise<T>;
@@ -211,7 +213,16 @@ export function schedule<T>(
   }
 
   return new Promise<T>((resolve, reject) => {
-    enqueueAndProcess(group, id, task as () => Promise<unknown>, { ...options, group }, undefined, false, resolve as (v: unknown) => void, reject);
+    enqueueAndProcess(
+      group,
+      id,
+      task as () => Promise<unknown>,
+      { ...options, group },
+      undefined,
+      options.priority ?? false,
+      resolve as (v: unknown) => void,
+      reject
+    );
   });
 }
 

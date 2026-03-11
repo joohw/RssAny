@@ -35,6 +35,7 @@
   let loadError = '';
   let generating = false;
   let generateError = '';
+  let generateNotice = '';
 
   async function fetchDates(): Promise<string[]> {
     if (!topic) return [];
@@ -86,11 +87,16 @@
 
   async function pollTask(taskId: string) {
     while (!generateAborted) {
-      const taskRes = await fetchJson<{ status: string; result?: unknown; error?: string }>(
+      const taskRes = await fetchJson<{
+        status: string;
+        result?: { skipped?: boolean; message?: string };
+        error?: string;
+      }>(
         `/api/tasks/${taskId}`
       );
       if (taskRes?.status === 'done') {
         await load();
+        generateNotice = taskRes?.result?.message ?? '已生成最新报告';
         if (typeof window !== 'undefined') sessionStorage.removeItem(PENDING_KEY);
         break;
       }
@@ -107,6 +113,7 @@
     if (!topic) return;
     generating = true;
     generateError = '';
+    generateNotice = '';
     try {
       const submitRes = await fetchJson<{ taskId?: string; error?: string }>(
         '/api/tasks',
@@ -219,11 +226,17 @@
         <div class="state empty">
           <p>该话题尚无报告</p>
           <p class="hint">点击「生成」让 Agent 基于近期文章撰写追踪报告</p>
+          {#if generateNotice}
+            <p class="gen-notice">{generateNotice}</p>
+          {/if}
           {#if generateError}
             <p class="gen-error">{generateError}</p>
           {/if}
         </div>
       {:else}
+        {#if generateNotice}
+          <div class="gen-notice-bar">{generateNotice}</div>
+        {/if}
         {#if generateError}
           <div class="gen-error-bar">{generateError}</div>
         {/if}
@@ -364,6 +377,16 @@
   .state.empty .hint { font-size: 0.75rem; color: #aaa; }
 
   .gen-error { color: #c53030; font-size: 0.75rem; margin-top: 0.5rem; }
+  .gen-notice { color: #6b7280; font-size: 0.75rem; margin-top: 0.5rem; }
+  .gen-notice-bar {
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    color: #4b5563;
+    font-size: 0.8125rem;
+    margin-bottom: 1rem;
+  }
   .gen-error-bar {
     background: #fff5f5;
     border: 1px solid #fed7d7;

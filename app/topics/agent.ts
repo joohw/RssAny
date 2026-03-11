@@ -20,7 +20,7 @@ function buildTaskPrompt(
   topic: string,
   periodDays: number,
   previousArticle?: string | null,
-  opts?: { searchTags?: string[]; prompt?: string }
+  opts?: { searchTags?: string[]; prompt?: string; preflightMatchCount?: number }
 ): string {
   const until = new Date();
   until.setDate(until.getDate() + 1);
@@ -31,6 +31,13 @@ function buildTaskPrompt(
   const hasTags = opts?.searchTags && opts.searchTags.length > 0;
   const tagsStr = hasTags ? opts!.searchTags!.join(",") : "";
   const promptHint = opts?.prompt?.trim() ? `\n\n**用户对该话题的说明**：${opts.prompt}` : "";
+  const preflightHint = typeof opts?.preflightMatchCount === "number"
+    ? hasTags
+      ? opts.preflightMatchCount > 0
+        ? `\n\n预检结果：按 tags=${tagsStr} 在最近 ${periodDays} 天内初步匹配到 ${opts.preflightMatchCount} 篇文章。你可以优先从这些相关文章入手，但不必受限于 tags。`
+        : `\n\n预检结果：按 tags=${tagsStr} 在最近 ${periodDays} 天内未初步匹配到文章。请不要因此停止，改为扩大范围：先获取该时间窗内的全部文章，再按标题、摘要和正文自行筛选与话题最相关的内容。`
+      : `\n\n预检结果：本话题未设置 tags，请直接从该时间范围内的全部文章中筛选。`
+    : "";
 
   const prevSection = previousArticle
     ? `
@@ -50,13 +57,14 @@ ${previousArticle}
   const fetchStep = hasTags
     ? `1. 调用 get_channel_feeds（tags="${tagsStr}", since="${sinceStr}", until="${untilStr}", limit=200）或 search_feeds（tags="${tagsStr}", since="${sinceStr}", until="${untilStr}"）获取该话题下的近期文章`
     : `1. 调用 get_channel_feeds（since="${sinceStr}", until="${untilStr}", limit=200）获取该时间范围内的全部文章`;
-  return `请为话题「${topic}」撰写一份追踪报告，时间范围为最近 ${periodDays} 天（${sinceStr} 至 ${untilStr}）。${promptHint}${prevSection}
+  return `请为话题「${topic}」撰写一份追踪报告，时间范围为最近 ${periodDays} 天（${sinceStr} 至 ${untilStr}）。${promptHint}${preflightHint}${prevSection}
 
 执行步骤：
 ${fetchStep}
-2. 根据标题和摘要，判断哪些内容影响力大、值得深读（通常 5-8 条）
-3. 对每条重要内容调用 get_feed_detail 获取完整正文（最多调用 8 次）
-4. 基于完整正文输出结构化报告${previousArticle ? "，并体现与上期相比的变化" : ""}
+2. 如果 tags 检索结果过少或没有结果，改为调用 get_channel_feeds（since="${sinceStr}", until="${untilStr}", limit=200）获取该时间范围内的全部文章，再自行筛选与主题相关的内容
+3. 根据标题和摘要，判断哪些内容影响力大、值得深读（通常 5-8 条）
+4. 对每条重要内容调用 get_feed_detail 获取完整正文（最多调用 8 次）
+5. 基于完整正文输出结构化报告${previousArticle ? "，并体现与上期相比的变化" : ""}
 
 报告输出格式（严格遵循）：
 
@@ -122,6 +130,7 @@ export async function runDigestAgent(
     previousArticle?: string | null;
     searchTags?: string[];
     prompt?: string;
+    preflightMatchCount?: number;
   }
 ): Promise<string> {
   const agent = createDigestAgent();
@@ -130,6 +139,7 @@ export async function runDigestAgent(
   const prompt = buildTaskPrompt(key, options.periodDays ?? 1, options.previousArticle, {
     searchTags: options.searchTags,
     prompt: options.prompt,
+    preflightMatchCount: options.preflightMatchCount,
   });
 
   return new Promise<string>((resolve, reject) => {
