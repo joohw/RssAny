@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
 
-const api = spawn('npm run api:dev', {
+const api = spawn('npm run dev:api', {
   cwd: root,
   stdio: 'inherit',
   shell: true,
@@ -18,7 +18,7 @@ const api = spawn('npm run api:dev', {
 });
 
 setTimeout(() => {
-  const web = spawn('npm run webui:dev', {
+  const web = spawn('npm run dev:app', {
     cwd: root,
     stdio: 'inherit',
     shell: true,

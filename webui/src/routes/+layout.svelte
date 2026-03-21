@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import Rss from 'lucide-svelte/icons/rss';
   import FolderOpen from 'lucide-svelte/icons/folder-open';
+  import ListTodo from 'lucide-svelte/icons/list-todo';
   import List from 'lucide-svelte/icons/list';
   import MessageCircle from 'lucide-svelte/icons/message-circle';
   import Settings from 'lucide-svelte/icons/settings';
@@ -11,16 +12,19 @@
 
   interface NavLink { href: string; label: string; Icon: import('svelte').ComponentType }
   const navLinks: NavLink[] = [
-    { href: '/feeds?channel=all', label: 'Feeds', Icon: Rss },
-    { href: '/topics', label: 'Topics', Icon: FolderOpen },
-    { href: '/sources', label: 'Sources', Icon: List },
     { href: '/agent', label: 'Ask', Icon: MessageCircle },
+    { href: '/agent-tasks', label: 'Tasks', Icon: ListTodo },
+    { href: '/feeds?channel=all', label: 'Feeds', Icon: Rss },
+    { href: '/folders', label: 'Folders', Icon: FolderOpen },
+    { href: '/sources', label: 'Sources', Icon: List },
   ];
 
   function isActive(link: NavLink, pathname: string): boolean {
     if (link.href.startsWith('/feeds')) return pathname === '/feeds';
-    if (link.href === '/agent') return pathname.startsWith('/agent');
-    if (link.href === '/topics') return pathname.startsWith('/topics');
+    if (link.href === '/agent')
+      return pathname === '/agent' || pathname.startsWith('/agent/');
+    if (link.href === '/folders') return pathname.startsWith('/folders');
+    if (link.href === '/agent-tasks') return pathname.startsWith('/agent-tasks');
     return pathname.startsWith(link.href);
   }
 </script>

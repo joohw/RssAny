@@ -17,27 +17,12 @@
     loading = true;
     loadError = '';
     try {
-      const data = await fetchJson<{ suggestedTags?: { name: string; count?: number }[]; stats?: { tags?: string[] }[] }>('/api/topics');
+      const data = await fetchJson<{ suggestedTags?: { name: string; count?: number }[] }>('/api/tags');
       const suggested = data?.suggestedTags ?? [];
-      const fromStats = (data?.stats ?? [])
-        .flatMap((s) => s?.tags ?? [])
-        .filter((t): t is string => typeof t === 'string' && t.trim() !== '');
-      const seen = new Set<string>();
-      const merged: { name: string; count?: number }[] = [];
-      for (const t of suggested) {
-        if (t?.name && !seen.has(t.name)) {
-          seen.add(t.name);
-          merged.push({ name: t.name, count: t.count });
-        }
-      }
-      for (const t of fromStats) {
-        const name = t.trim();
-        if (name && !seen.has(name)) {
-          seen.add(name);
-          merged.push({ name });
-        }
-      }
-      tags = merged.sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+      tags = suggested
+        .filter((t): t is { name: string; count?: number } => Boolean(t?.name))
+        .map((t) => ({ name: t.name, count: t.count }))
+        .sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
       tags = [];

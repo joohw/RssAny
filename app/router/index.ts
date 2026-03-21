@@ -9,7 +9,7 @@ import { cors } from "hono/cors";
 import { initSources as initSites } from "../scraper/sources/index.js";
 import { initScheduler } from "../scraper/scheduler/index.js";
 import { initTopicsScheduler } from "../topics/scheduler.js";
-import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CACHE_DIR } from "../config/paths.js";
+import { initUserDir, BUILTIN_PLUGINS_DIR, USER_PLUGINS_DIR, CACHE_DIR, TOPIC_TASK_BASE_DIR } from "../config/paths.js";
 import { logger } from "../core/logger/index.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerChatRoutes } from "./routes/chat.js";
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   await initUserDir();
   await initSites();
   await initScheduler(CACHE_DIR);
-  await initTopicsScheduler(CACHE_DIR);
+  await initTopicsScheduler(TOPIC_TASK_BASE_DIR);
   const app = createApp();
   const server = serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" });
   server.setMaxListeners(32);

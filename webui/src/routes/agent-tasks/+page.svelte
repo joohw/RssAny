@@ -5,58 +5,44 @@
   import MoreHorizontal from 'lucide-svelte/icons/more-horizontal';
   import { fetchJson } from '$lib/fetchJson.js';
 
-  interface TopicStat {
-    title: string;
-    tags?: string[];
-    prompt?: string;
-    description?: string;
-    refresh?: number;
-    count: number;
-    hotness: number;
-  }
-
   const REFRESH_OPTIONS = [1, 3, 7, 14, 30];
 
-  interface TopicCard {
+  interface TaskRow {
     title: string;
-    tags: string[];
-    prompt: string;
     description: string;
+    prompt: string;
     refresh: number;
-    count: number;
-    hotness: number;
+    reportCount: number;
     articleHref: string;
   }
 
-  let cards: TopicCard[] = [];
+  let cards: TaskRow[] = [];
   let loading = true;
   let loadError = '';
   let showAddForm = false;
   let showEditForm = false;
-  let editTarget: TopicCard | null = null;
+  let editTarget: TaskRow | null = null;
   let newTitle = '';
   let newPrompt = '';
   let newDescription = '';
   let newRefresh = 1;
   let saving = false;
   let saveMsg = '';
-  let contextMenu: { x: number; y: number; topicTitle: string } | null = null;
+  let contextMenu: { x: number; y: number; taskTitle: string } | null = null;
 
   async function load() {
     loading = true;
     loadError = '';
     try {
-      const data = await fetchJson<{ stats?: TopicStat[] }>('/api/topics');
-      const list = data?.stats ?? [];
-      cards = list.map((s) => ({
-        title: s.title,
-        tags: s.tags ?? [],
-        prompt: s.prompt ?? '',
-        description: s.description ?? '',
-        refresh: s.refresh ?? 1,
-        count: s.count,
-        hotness: s.hotness,
-        articleHref: '/topics/' + encodeURIComponent(s.title),
+      const data = await fetchJson<{ tasks?: TaskRow[] }>('/api/agent-tasks');
+      const list = data?.tasks ?? [];
+      cards = list.map((t) => ({
+        title: t.title,
+        description: t.description ?? '',
+        prompt: t.prompt ?? '',
+        refresh: t.refresh ?? 1,
+        reportCount: t.reportCount ?? 0,
+        articleHref: '/agent-tasks/' + encodeURIComponent(t.title),
       }));
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
@@ -66,24 +52,23 @@
     }
   }
 
-  function getTopicsPayload(): Array<{ title: string; tags: string[]; prompt: string; description: string; refresh: number }> {
+  function payloadFromCards(): Array<{ title: string; prompt: string; description: string; refresh: number }> {
     return cards.map((c) => ({
       title: c.title,
-      tags: c.tags,
       prompt: c.prompt,
       description: c.description,
       refresh: c.refresh,
     }));
   }
 
-  async function save(topics: Array<{ title: string; tags: string[]; prompt: string; description: string; refresh: number }>) {
+  async function save(tasks: Array<{ title: string; prompt: string; description: string; refresh: number }>) {
     saving = true;
     saveMsg = '';
     try {
-      const data = await fetchJson<{ ok?: boolean; message?: string }>('/api/topics', {
+      const data = await fetchJson<{ ok?: boolean; message?: string }>('/api/agent-tasks', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topics }),
+        body: JSON.stringify({ tasks }),
       });
       if (!data?.ok) throw new Error(data?.message ?? '保存失败');
       await load();
@@ -96,26 +81,25 @@
     }
   }
 
-  function addTopic() {
+  function addTask() {
     const title = newTitle.trim();
     if (!title || saving) return;
     if (cards.some((c) => c.title === title)) {
-      saveMsg = '话题已存在';
+      saveMsg = '任务已存在';
       setTimeout(() => { saveMsg = ''; }, 1500);
       return;
     }
-    const topic = {
+    const row = {
       title,
-      tags: [] as string[],
       prompt: newPrompt.trim(),
       description: newDescription.trim(),
       refresh: newRefresh,
     };
     closeAddModal();
-    save([...getTopicsPayload(), topic]);
+    save([...payloadFromCards(), row]);
   }
 
-  function openEditModal(card: TopicCard) {
+  function openEditModal(card: TaskRow) {
     editTarget = card;
     newTitle = card.title;
     newPrompt = card.prompt;
@@ -130,31 +114,31 @@
     const title = newTitle.trim();
     if (!title) return;
     if (title !== editTarget.title && cards.some((c) => c.title === title)) {
-      saveMsg = '话题已存在';
+      saveMsg = '任务已存在';
       setTimeout(() => { saveMsg = ''; }, 1500);
       return;
     }
     const next = cards.map((c) =>
       c.title === editTarget!.title
-        ? { ...c, title, tags: editTarget!.tags, prompt: newPrompt.trim(), description: newDescription.trim(), refresh: newRefresh }
+        ? { ...c, title, prompt: newPrompt.trim(), description: newDescription.trim(), refresh: newRefresh }
         : c
     );
     closeEditModal();
-    save(next.map((c) => ({ title: c.title, tags: c.tags, prompt: c.prompt, description: c.description, refresh: c.refresh })));
+    save(next.map((c) => ({ title: c.title, prompt: c.prompt, description: c.description, refresh: c.refresh })));
   }
 
-  function removeTopic(title: string) {
+  function removeTask(title: string) {
     if (saving) return;
     const next = cards.filter((c) => c.title !== title);
-    save(next.map((c) => ({ title: c.title, tags: c.tags, prompt: c.prompt, description: c.description, refresh: c.refresh })));
+    save(next.map((c) => ({ title: c.title, prompt: c.prompt, description: c.description, refresh: c.refresh })));
     contextMenu = null;
   }
 
-  function showContextMenu(e: MouseEvent, topicTitle: string) {
+  function showContextMenu(e: MouseEvent, taskTitle: string) {
     if (saving) return;
     e.preventDefault();
     e.stopPropagation();
-    contextMenu = { x: e.clientX, y: e.clientY, topicTitle };
+    contextMenu = { x: e.clientX, y: e.clientY, taskTitle };
   }
 
   function closeContextMenu() {
@@ -192,7 +176,7 @@
 </script>
 
 <svelte:head>
-  <title>话题 - RssAny</title>
+  <title>任务 - RssAny</title>
 </svelte:head>
 
 <svelte:window on:keydown={(e) => {
@@ -206,8 +190,8 @@
   <div class="feed-col">
     <div class="feed-header">
       <div class="header-left">
-        <h2>话题</h2>
-        <p class="sub">话题只需要简短的描述，添加话题后，Agent 会持续追踪该话题并定期输出文章。</p>
+        <h2>任务</h2>
+        <p class="sub">定时由 Agent 执行：按刷新周期与提示词生成报告，结果保存在沙盒 task/ 下。</p>
       </div>
       <div class="header-right">
         {#if saveMsg}
@@ -216,8 +200,8 @@
         <button
           type="button"
           class="add-btn"
-          title="添加话题"
-          aria-label="添加话题"
+          title="添加任务"
+          aria-label="添加任务"
           on:click={() => { showAddForm = true; newTitle = ''; newPrompt = ''; newDescription = ''; newRefresh = 1; }}
           disabled={loading || saving}
         >
@@ -231,7 +215,7 @@
     {:else if loadError}
       <div class="state error">{loadError}</div>
     {:else if cards.length === 0}
-      <div class="state">暂无话题。点击「添加话题」创建，需填写标题（必填），可选填关键词和描述。</div>
+      <div class="state">暂无任务。点击「+」创建：填写标题（必填）、描述与 AI 提示词、刷新周期。</div>
     {:else}
       <div class="list">
         {#each cards as card (card.title)}
@@ -248,17 +232,10 @@
               {#if card.description}
                 <span class="card-prompt">{card.description}</span>
               {/if}
-              {#if card.tags.length > 0}
-                <div class="card-tags-wrap">
-                  {#each card.tags as tag}
-                    <a
-                      href="/feeds?tags={encodeURIComponent(tag)}"
-                      class="card-tag-badge"
-                      title="按标签筛选文章"
-                      on:click|stopPropagation
-                    >{tag}</a>
-                  {/each}
-                </div>
+              {#if card.reportCount > 0}
+                <span class="card-meta">{card.reportCount} 篇报告 · 每 {card.refresh} 天</span>
+              {:else}
+                <span class="card-meta">每 {card.refresh} 天</span>
               {/if}
             </div>
             <button
@@ -281,7 +258,6 @@
   </div>
 </div>
 
-<!-- 添加话题弹窗 -->
 <Dialog.Root
   open={showAddForm}
   onOpenChange={(open) => { showAddForm = open; if (!open) closeAddModal(); }}
@@ -290,7 +266,7 @@
     <Dialog.Overlay class="dialog-overlay" />
     <Dialog.Content class="dialog-content" aria-describedby={undefined}>
       <div class="dialog-header">
-        <Dialog.Title class="dialog-title">添加话题</Dialog.Title>
+        <Dialog.Title class="dialog-title">添加任务</Dialog.Title>
         <Dialog.Close class="dialog-close" aria-label="关闭">×</Dialog.Close>
       </div>
       <div class="dialog-body">
@@ -299,27 +275,27 @@
           <input
             id="new-title"
             type="text"
-            placeholder="简短描述，如：A2A协议"
+            placeholder="如：行业日报"
             bind:value={newTitle}
-            on:keydown={(e) => e.key === 'Enter' && addTopic()}
+            on:keydown={(e) => e.key === 'Enter' && addTask()}
           />
         </div>
         <div class="form-row">
           <label for="new-description">描述</label>
-          <p class="field-hint">卡片上展示的简短概念，便于阅读时识别，不提供给 AI。</p>
+          <p class="field-hint">卡片上展示，不提供给 Agent。</p>
           <input
             id="new-description"
             type="text"
-            placeholder="如：A2A 协议与多智能体通信"
+            placeholder="简短说明"
             bind:value={newDescription}
           />
         </div>
         <div class="form-row">
           <label for="new-prompt">AI 提示词</label>
-          <p class="field-hint">主导报告生成逻辑，供 Agent 参考。若有 tags 会作为搜索提示插入；无 tags 时 agent 可自行选择获取方式（如日报用 get_channel_feeds 获取全部文章）。</p>
+          <p class="field-hint">主导生成逻辑：如何用 get_feeds / get_feed_detail 等工具完成报告。</p>
           <textarea
             id="new-prompt"
-            placeholder="如：关注谷歌、OpenAI 等在 Agent-to-Agent 通信领域的最新进展"
+            placeholder="说明关注点、结构、筛选方式等"
             bind:value={newPrompt}
             rows="5"
           ></textarea>
@@ -330,7 +306,7 @@
               <option value={d}>{d} 天</option>
             {/each}
           </select>
-          <button type="button" on:click={addTopic} disabled={!newTitle.trim() || saving}>
+          <button type="button" on:click={addTask} disabled={!newTitle.trim() || saving}>
             添加
           </button>
         </div>
@@ -340,7 +316,7 @@
 </Dialog.Root>
 
 {#if contextMenu}
-  {@const card = cards.find((c) => c.title === contextMenu!.topicTitle)}
+  {@const card = cards.find((c) => c.title === contextMenu!.taskTitle)}
   <div
     class="context-menu"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px"
@@ -350,25 +326,12 @@
     on:keydown={(e) => e.key === 'Escape' && closeContextMenu()}
   >
     {#if card}
-      <button
-        type="button"
-        class="context-menu-item"
-        on:click={() => openEditModal(card)}
-      >
-        编辑
-      </button>
-      <button
-        type="button"
-        class="context-menu-item"
-        on:click={() => removeTopic(contextMenu!.topicTitle)}
-      >
-        删除
-      </button>
+      <button type="button" class="context-menu-item" on:click={() => openEditModal(card)}>编辑</button>
+      <button type="button" class="context-menu-item" on:click={() => removeTask(contextMenu!.taskTitle)}>删除</button>
     {/if}
   </div>
 {/if}
 
-<!-- 编辑话题弹窗 -->
 <Dialog.Root
   open={showEditForm}
   onOpenChange={(open) => { showEditForm = open; if (!open) closeEditModal(); }}
@@ -377,39 +340,21 @@
     <Dialog.Overlay class="dialog-overlay" />
     <Dialog.Content class="dialog-content" aria-describedby={undefined}>
       <div class="dialog-header">
-        <Dialog.Title class="dialog-title">编辑话题</Dialog.Title>
+        <Dialog.Title class="dialog-title">编辑任务</Dialog.Title>
         <Dialog.Close class="dialog-close" aria-label="关闭">×</Dialog.Close>
       </div>
       <div class="dialog-body">
         <div class="form-row">
           <label for="edit-title">标题 <span class="required">*</span></label>
-          <input
-            id="edit-title"
-            type="text"
-            placeholder="简短描述，如：A2A协议"
-            bind:value={newTitle}
-            on:keydown={(e) => e.key === 'Enter' && saveEdit()}
-          />
+          <input id="edit-title" type="text" bind:value={newTitle} on:keydown={(e) => e.key === 'Enter' && saveEdit()} />
         </div>
         <div class="form-row">
           <label for="edit-description">描述</label>
-          <p class="field-hint">卡片上展示的简短概念，便于阅读时识别，不提供给 AI。</p>
-          <input
-            id="edit-description"
-            type="text"
-            placeholder="如：A2A 协议与多智能体通信"
-            bind:value={newDescription}
-          />
+          <input id="edit-description" type="text" bind:value={newDescription} />
         </div>
         <div class="form-row">
           <label for="edit-prompt">AI 提示词</label>
-          <p class="field-hint">主导报告生成逻辑，供 Agent 参考。</p>
-          <textarea
-            id="edit-prompt"
-            placeholder="如：关注谷歌、OpenAI 等在 Agent-to-Agent 通信领域的最新进展"
-            bind:value={newPrompt}
-            rows="5"
-          ></textarea>
+          <textarea id="edit-prompt" bind:value={newPrompt} rows="5"></textarea>
         </div>
         <div class="form-row form-actions">
           <select bind:value={newRefresh} title="刷新周期（天）">
@@ -417,9 +362,7 @@
               <option value={d}>{d} 天</option>
             {/each}
           </select>
-          <button type="button" on:click={saveEdit} disabled={!newTitle.trim() || saving}>
-            保存
-          </button>
+          <button type="button" on:click={saveEdit} disabled={!newTitle.trim() || saving}>保存</button>
         </div>
       </div>
     </Dialog.Content>
@@ -454,10 +397,7 @@
     border-bottom: 1px solid #f0f0f0;
     flex-shrink: 0;
   }
-  .header-left {
-    flex: 1;
-    min-width: 0;
-  }
+  .header-left { flex: 1; min-width: 0; }
   .feed-header h2 {
     font-size: 0.9375rem;
     font-weight: 600;
@@ -485,19 +425,10 @@
     border-radius: 6px;
     cursor: pointer;
   }
-  .add-btn:hover:not(:disabled) {
-    background: var(--color-primary-hover);
-  }
-  .add-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .save-msg {
-    font-size: 0.75rem;
-    color: #059669;
-  }
+  .add-btn:hover:not(:disabled) { background: var(--color-primary-hover); }
+  .add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .save-msg { font-size: 0.75rem; color: #059669; }
 
-  /* bits-ui Dialog 通过 Portal 渲染，需 :global 使样式生效 */
   :global(.dialog-overlay) {
     position: fixed;
     inset: 0;
@@ -528,11 +459,7 @@
     border-bottom: 1px solid #e5e7eb;
     flex-shrink: 0;
   }
-  :global(.dialog-title) {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    margin: 0;
-  }
+  :global(.dialog-title) { font-size: 0.9375rem; font-weight: 600; margin: 0; }
   :global(.dialog-close) {
     font-size: 1.25rem;
     line-height: 1;
@@ -543,28 +470,16 @@
     cursor: pointer;
     border-radius: 4px;
   }
-  :global(.dialog-close:hover) {
-    color: #111;
-    background: #f0f0f0;
-  }
-  :global(.dialog-body) {
-    padding: 1rem 1.25rem;
-  }
-  .form-row {
-    margin-bottom: 0.5rem;
-  }
-  .form-row:last-of-type {
-    margin-bottom: 0;
-  }
+  :global(.dialog-close:hover) { color: #111; background: #f0f0f0; }
+  :global(.dialog-body) { padding: 1rem 1.25rem; }
+  .form-row { margin-bottom: 0.5rem; }
   .form-row label {
     display: block;
     font-size: 0.75rem;
     color: #6b7280;
     margin-bottom: 0.2rem;
   }
-  .required {
-    color: #c53030;
-  }
+  .required { color: #c53030; }
   .form-row input,
   .form-row textarea {
     width: 100%;
@@ -574,20 +489,12 @@
     border-radius: 6px;
     box-sizing: border-box;
   }
-  .form-row textarea {
-    resize: vertical;
-    min-height: 6rem;
-  }
+  .form-row textarea { resize: vertical; min-height: 6rem; }
   .field-hint {
     font-size: 0.7rem;
     color: #9ca3af;
     margin: 0 0 0.35rem;
     line-height: 1.4;
-  }
-  .form-row input:focus,
-  .form-row textarea:focus {
-    outline: none;
-    border-color: var(--color-primary);
   }
   .form-actions {
     display: flex;
@@ -610,13 +517,8 @@
     border-radius: 6px;
     cursor: pointer;
   }
-  .form-actions button:hover:not(:disabled) {
-    background: var(--color-primary-hover);
-  }
-  .form-actions button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  .form-actions button:hover:not(:disabled) { background: var(--color-primary-hover); }
+  .form-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .state {
     flex: 1;
@@ -628,9 +530,7 @@
     color: #888;
     font-size: 0.875rem;
   }
-  .state.error {
-    color: #c53030;
-  }
+  .state.error { color: #c53030; }
 
   .list {
     flex: 1;
@@ -644,33 +544,20 @@
 
   .card {
     background: #fff;
-    border: none;
     border-bottom: 1px solid #e5e7eb;
-    border-radius: 0;
     padding: 1rem 1.25rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    transition: background 0.15s;
     flex-shrink: 0;
     cursor: pointer;
   }
-  .card:last-child {
-    border-bottom: none;
-  }
-  .card:hover {
-    background: #fafafa;
-  }
-
+  .card:hover { background: #fafafa; }
   .card-more-btn {
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     width: 2rem;
     height: 2rem;
-    margin: -0.25rem 0;
     padding: 0;
     border: none;
     border-radius: 6px;
@@ -678,49 +565,17 @@
     color: #6b7280;
     cursor: pointer;
   }
-  .card-more-btn:hover {
-    background: #e5e7eb;
-    color: #111;
-  }
-
-  .card-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
+  .card-more-btn:hover { background: #e5e7eb; color: #111; }
+  .card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
   .card-label {
     font-size: 0.9rem;
     font-weight: 500;
     color: #111;
-    line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .card:hover .card-label {
-    color: var(--color-primary);
-  }
-  .card-tags-wrap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    margin-top: 0.2rem;
-  }
-  .card-tag-badge {
-    font-size: 0.65rem;
-    padding: 0.15rem 0.4rem;
-    background: #f3f4f6;
-    color: #6b7280;
-    border-radius: 4px;
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .card-tag-badge:hover {
-    background: #e5e7eb;
-    color: #374151;
-  }
+  .card:hover .card-label { color: var(--color-primary); }
   .card-prompt {
     font-size: 0.72rem;
     color: #9ca3af;
@@ -728,6 +583,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .card-meta { font-size: 0.65rem; color: #9ca3af; }
 
   .context-menu {
     position: fixed;
@@ -739,7 +595,6 @@
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
-
   .context-menu-item {
     display: block;
     width: 100%;
@@ -751,9 +606,7 @@
     border: none;
     cursor: pointer;
   }
-  .context-menu-item:hover {
-    background: #f3f4f6;
-  }
+  .context-menu-item:hover { background: #f3f4f6; }
 
   @media (max-width: 600px) {
     .feed-wrap { max-width: 100%; }

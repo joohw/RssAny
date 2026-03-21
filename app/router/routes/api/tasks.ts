@@ -3,7 +3,7 @@
 import type { Hono } from "hono";
 import * as taskStore from "../../../tasks/index.js";
 import * as scheduler from "../../../scheduler/index.js";
-import { CACHE_DIR } from "../../../config/paths.js";
+import { CACHE_DIR, TOPIC_TASK_BASE_DIR } from "../../../config/paths.js";
 import { generateDigest } from "../../../topics/index.js";
 import { getItems } from "../../../feeder/index.js";
 import { SOURCES_GROUP } from "../../../scraper/scheduler/index.js";
@@ -23,25 +23,31 @@ export function registerTasksRoutes(app: Hono): void {
     try {
       const body = (await c.req.json().catch(() => ({}))) as {
         type?: string;
+        taskKey?: string;
         topicKey?: string;
         force?: boolean;
         ref?: string;
       };
       const type = body.type ?? "";
-      if (type === "topic-generate") {
-        const topicKey = typeof body.topicKey === "string" ? body.topicKey.trim() : "";
-        if (!topicKey) return c.json({ error: "topicKey 不能为空" }, 400);
+      if (type === "topic-generate" || type === "agent-task-generate") {
+        const taskKey =
+          typeof body.taskKey === "string"
+            ? body.taskKey.trim()
+            : typeof body.topicKey === "string"
+              ? body.topicKey.trim()
+              : "";
+        if (!taskKey) return c.json({ error: "taskKey 不能为空" }, 400);
         const force = body.force ?? true;
         const taskId = taskStore.createTask();
         scheduler.schedule(TOPICS_GROUP, taskId, async () => {
           taskStore.setTaskRunning(taskId);
           try {
-            const result = await generateDigest(CACHE_DIR, topicKey, force);
+            const result = await generateDigest(TOPIC_TASK_BASE_DIR, taskKey, force);
             taskStore.setTaskDone(taskId, result);
             return result;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            logger.error("topics", "话题生成失败", { taskId, topicKey, err: msg });
+            logger.error("topics", "Agent 任务生成失败", { taskId, taskKey, err: msg });
             taskStore.setTaskError(taskId, msg);
             throw err;
           }

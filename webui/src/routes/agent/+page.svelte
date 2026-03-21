@@ -4,6 +4,7 @@
   import { Popover } from 'bits-ui';
   import Plus from 'lucide-svelte/icons/plus';
   import History from 'lucide-svelte/icons/history';
+  import Loader2 from 'lucide-svelte/icons/loader-2';
   import {
     agentMessages,
     agentStream,
@@ -303,8 +304,10 @@
     <div class="agent-messages" bind:this={messagesEl}>
       {#if $agentMessages.length === 0}
         <div class="agent-empty">
-          <p class="agent-empty-title">开始对话</p>
-          <p class="agent-empty-desc">基于频道与 feeds 做检索、综述、对比与追踪，支持网页搜索与抓取</p>
+          <p class="agent-empty-title">Research Agent</p>
+          <p class="agent-empty-desc">
+           从本地频道与订阅 feeds 检索与综览，对比观点、持续追踪主题；需要时联网搜索并抓取网页正文。
+          </p>
           <div class="quick-prompts">
             {#each QUICK_PROMPTS as prompt}
               <button type="button" class="quick-prompt" on:click={() => send(prompt)} disabled={streaming}>{prompt}</button>
@@ -318,7 +321,15 @@
               <div class="tool-calls">
                 {#each msg.toolCalls as tc (tc.toolCallId + tc.status)}
                   <div class="tool-call" class:running={tc.status === 'running'} class:success={tc.status === 'success'} class:error={tc.status === 'error'}>
-                    <span class="tool-call-icon">{#if tc.status === 'running'}⟳{:else if tc.status === 'success'}✓{:else}✗{/if}</span>
+                    <span class="tool-call-icon">
+                      {#if tc.status === 'running'}
+                        <span class="tool-call-spinner" aria-hidden="true"><Loader2 size={14} /></span>
+                      {:else if tc.status === 'success'}
+                        ✓
+                      {:else}
+                        ✗
+                      {/if}
+                    </span>
                     <span class="tool-call-name">{toolLabel(tc.toolName)}</span>
                     {#if formatArgs(tc.args)}<span class="tool-call-args">{formatArgs(tc.args)}</span>{/if}
                   </div>
@@ -345,7 +356,15 @@
               <div class="tool-calls">
                 {#each $agentStream.streamToolCalls as tc (tc.toolCallId + tc.status)}
                   <div class="tool-call" class:running={tc.status === 'running'} class:success={tc.status === 'success'} class:error={tc.status === 'error'}>
-                    <span class="tool-call-icon">{#if tc.status === 'running'}⟳{:else if tc.status === 'success'}✓{:else}✗{/if}</span>
+                    <span class="tool-call-icon">
+                      {#if tc.status === 'running'}
+                        <span class="tool-call-spinner" aria-hidden="true"><Loader2 size={14} /></span>
+                      {:else if tc.status === 'success'}
+                        ✓
+                      {:else}
+                        ✗
+                      {/if}
+                    </span>
                     <span class="tool-call-name">{toolLabel(tc.toolName)}</span>
                     {#if formatArgs(tc.args)}<span class="tool-call-args">{formatArgs(tc.args)}</span>{/if}
                   </div>
@@ -379,9 +398,6 @@
       <div class="input-footer">
         <span class="input-hint">Shift+Enter 发送 · Enter 换行 · Shift+N 清空</span>
         <div class="input-footer-right">
-          {#if $agentMessages.length > 0}
-            <button type="button" class="clear-link" on:click={clearChat} disabled={streaming}>清空对话</button>
-          {/if}
           <button type="button" class="btn-send" on:click={() => send()} disabled={streaming || !input.trim()}>
             {streaming ? '发送中…' : '发送'}
           </button>
@@ -574,7 +590,15 @@
     border-color: #b3d9f5;
     color: var(--color-primary);
   }
-  .tool-call.running .tool-call-icon {
+  .tool-call-spinner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .tool-call.running .tool-call-spinner :global(svg) {
     animation: tool-spin 1s linear infinite;
   }
   .tool-call.success {
@@ -653,7 +677,7 @@
   .agent-input-wrap {
     flex-shrink: 0;
     border-top: 1px solid #f0f0f0;
-    padding: 0.875rem 1.25rem;
+    padding: 0.75rem 1.25rem 1rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -669,23 +693,25 @@
   .agent-input-wrap textarea {
     width: 100%;
     resize: none;
-    padding: 0.625rem 0.75rem;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
+    padding: 0.35rem 0;
+    border: none;
+    border-radius: 0;
     font-size: 0.875rem;
     font-family: inherit;
     line-height: 1.5;
     color: #111;
-    background: #fafafa;
+    background: transparent;
+    box-shadow: none;
   }
   .agent-input-wrap textarea:focus {
     outline: none;
-    border-color: #aaa;
-    background: #fff;
+    border: none;
+    background: transparent;
   }
   .agent-input-wrap textarea:disabled {
-    background: #f5f5f5;
+    background: transparent;
     color: #999;
+    opacity: 1;
   }
   .input-footer {
     display: flex;
@@ -700,23 +726,6 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-  .clear-link {
-    font-size: 0.75rem;
-    color: #888;
-    background: transparent;
-    padding: 0;
-    border: none;
-    font-weight: 400;
-    text-decoration: underline;
-    cursor: pointer;
-  }
-  .clear-link:hover:not(:disabled) {
-    color: #111;
-  }
-  .clear-link:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
   }
   .btn-send {
     padding: 0.45rem 1.125rem;

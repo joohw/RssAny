@@ -4,11 +4,11 @@
   import { goto } from '$app/navigation';
   import { fetchJson } from '$lib/fetchJson.js';
 
-  const PENDING_KEY = 'topic-generate-pending';
+  const PENDING_KEY = 'agent-task-generate-pending';
   let generateAborted = false;
   onDestroy(() => { generateAborted = true; });
 
-  $: topic = decodeURIComponent($page.params.topic ?? '');
+  $: topic = decodeURIComponent($page.params.task ?? '');
 
   let dates: string[] = [];
   let loading = true;
@@ -20,7 +20,7 @@
   async function fetchDates(): Promise<string[]> {
     if (!topic) return [];
     const data = await fetchJson<{ dates: string[] }>(
-      `/api/topics/${encodeURIComponent(topic)}/dates`
+      `/api/agent-tasks/${encodeURIComponent(topic)}/dates`
     );
     return data?.dates ?? [];
   }
@@ -32,7 +32,7 @@
     try {
       dates = await fetchDates();
       if (dates.length > 0) {
-        goto(`/topics/${encodeURIComponent(topic)}/${encodeURIComponent(dates[0])}`, { replaceState: true });
+        goto(`/agent-tasks/${encodeURIComponent(topic)}/${encodeURIComponent(dates[0])}`, { replaceState: true });
         return;
       }
     } catch (e) {
@@ -55,7 +55,7 @@
         generateNotice = taskRes?.result?.message ?? '已生成最新报告';
         if (typeof window !== 'undefined') sessionStorage.removeItem(PENDING_KEY);
         if (dates.length > 0) {
-          goto(`/topics/${encodeURIComponent(topic)}/${encodeURIComponent(dates[0])}`, { replaceState: true });
+          goto(`/agent-tasks/${encodeURIComponent(topic)}/${encodeURIComponent(dates[0])}`, { replaceState: true });
         }
         break;
       }
@@ -79,7 +79,7 @@
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'topic-generate', topicKey: topic, force }),
+          body: JSON.stringify({ type: 'agent-task-generate', taskKey: topic, force }),
         }
       );
       const taskId = submitRes?.taskId;
@@ -121,7 +121,7 @@
 </script>
 
 <svelte:head>
-  <title>{topic} - 话题追踪 - RssAny</title>
+  <title>{topic} - 任务 - RssAny</title>
 </svelte:head>
 
 <div class="wrap">
@@ -129,7 +129,7 @@
     <div class="header">
       <div class="header-left">
         <div class="breadcrumb">
-          <a href="/topics" class="breadcrumb-link">话题</a>
+          <a href="/agent-tasks" class="breadcrumb-link">任务</a>
           <span class="breadcrumb-sep">/</span>
           <span class="breadcrumb-current">{topic}</span>
         </div>
@@ -143,8 +143,8 @@
         <div class="state error">{loadError}</div>
       {:else}
         <div class="state empty">
-          <p>该话题尚无报告</p>
-          <p class="hint">点击「生成」让 Agent 基于近期文章撰写追踪报告</p>
+          <p>该任务尚无报告</p>
+          <p class="hint">点击「生成」让 Agent 按配置撰写报告</p>
           {#if generateNotice}
             <p class="gen-notice">{generateNotice}</p>
           {/if}

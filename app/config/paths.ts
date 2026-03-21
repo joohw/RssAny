@@ -8,8 +8,11 @@ import { logger } from "../core/logger/index.js";
 /** 用户数据根目录：.rssany/（不纳入版本管理，存放所有运行时用户数据） */
 export const USER_DIR = join(process.cwd(), ".rssany");
 
-/** Agent 文件工具沙箱根目录：.rssany/sandbox/，所有 read_file / write_file / list_directory 仅限此目录下 */
+/** Agent 文件工具沙箱根目录：.rssany/sandbox/；Agent / MCP 仅通过 sandbox 工具访问此目录 */
 export const SANDBOX_DIR = join(USER_DIR, "sandbox");
+
+/** 定时任务报告：父路径为沙盒根，实际文件为 .rssany/sandbox/task/[任务]/yyyy-mm-dd.md */
+export const TOPIC_TASK_BASE_DIR = SANDBOX_DIR;
 
 /** 将相对路径解析到沙箱内绝对路径，禁止逃逸到沙箱外；path 为相对 .rssany/sandbox 的路径。 */
 export function resolveSandboxPath(path: string): { absolute: string } | { error: string } {
@@ -45,8 +48,8 @@ export const CHANNELS_CONFIG_PATH = join(USER_DIR, "channels.json");
 /** 系统标签配置：.rssany/tags.json（供 pipeline tagger 使用） */
 export const TAGS_CONFIG_PATH = join(USER_DIR, "tags.json");
 
-/** 话题配置：.rssany/topics.json（title、tags、prompt、refresh） */
-export const TOPICS_CONFIG_PATH = join(USER_DIR, "topics.json");
+/** 定时 Agent 任务：.rssany/tasks.json（title、prompt、description、refresh；无 tags） */
+export const TASKS_CONFIG_PATH = join(USER_DIR, "tasks.json");
 
 /** 全局配置：.rssany/config.json（enrich、pipeline 等） */
 export const CONFIG_PATH = join(USER_DIR, "config.json");
@@ -139,69 +142,31 @@ export async function initUserDir(): Promise<void> {
       logger.warn("config", "生成 channels.json 失败", { err: err instanceof Error ? err.message : String(err) });
     }
   }
-  // 迁移 tags.json（旧格式）→ topics.json
-  if (!(await pathExists(TOPICS_CONFIG_PATH)) && (await pathExists(TAGS_CONFIG_PATH))) {
-    try {
-      const raw = await readFile(TAGS_CONFIG_PATH, "utf-8");
-      const parsed = JSON.parse(raw) as { tags?: string[]; periods?: Record<string, number> };
-      const tagList = Array.isArray(parsed?.tags) ? parsed.tags : [];
-      const periods = parsed?.periods && typeof parsed.periods === "object" ? parsed.periods : {};
-      const topics = tagList
-        .filter((t) => typeof t === "string" && t.trim())
-        .map((t) => t.trim())
-        .map((title) => ({
-          title,
-          tags: [title],
-          prompt: "",
-          refresh: Math.max(1, Math.floor(Number(periods[title])) || 1),
-        }));
-      await writeFile(TOPICS_CONFIG_PATH, JSON.stringify({ topics }, null, 2), "utf-8");
-      logger.info("config", "已从 tags.json 迁移至 topics.json", { count: topics.length });
-    } catch (err) {
-      logger.warn("config", "tags.json 迁移至 topics.json 失败", { err: err instanceof Error ? err.message : String(err) });
-    }
-  }
 
-  // 若 tags.json 不存在但 topics.json 存在，从话题 tags 并集初始化 tags.json
-  if (!(await pathExists(TAGS_CONFIG_PATH)) && (await pathExists(TOPICS_CONFIG_PATH))) {
-    try {
-      const raw = await readFile(TOPICS_CONFIG_PATH, "utf-8");
-      const parsed = JSON.parse(raw) as { topics?: Array<{ tags?: string[]; title?: string }> };
-      const tags = new Set<string>();
-      for (const t of parsed?.topics ?? []) {
-        const list = Array.isArray(t.tags) && t.tags.length > 0 ? t.tags : (t.title ? [t.title] : []);
-        for (const tag of list) if (tag?.trim()) tags.add(tag.trim());
-      }
-      await writeFile(TAGS_CONFIG_PATH, JSON.stringify({ tags: Array.from(tags) }, null, 2), "utf-8");
-      logger.info("config", "已从 topics.json 初始化 tags.json", { count: tags.size });
-    } catch (err) {
-      logger.warn("config", "从 topics 初始化 tags.json 失败", { err: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // 确保 topics.json 包含「日报」话题（合并原独立日报功能）
-  const DAILY_TOPIC = {
+  // 确保 tasks.json 包含「日报」定时任务
+  const DAILY_AGENT_TASK = {
     title: "日报",
-    tags: [] as string[],
     description: "当日行业热度日报",
     prompt: `按当日全部文章生成行业热度日报。执行步骤：1. 调用 get_feeds（since=当日, until=次日, limit=200）获取当日全部文章；2. 根据标题和摘要判断影响力大的新闻（通常 5-8 条）；3. 对每条重要新闻调用 get_feed_detail 获取完整正文（最多 8 次）；4. 基于完整正文输出结构化日报。输出格式：行业热度榜（按热度降序，每条含标题、相关度、关键词、要点、来源）、频道速览（按频道分组列出其余文章）。`,
     refresh: 1,
   };
   try {
-    let topics: Array<{ title: string; tags?: string[]; prompt?: string; description?: string; refresh?: number }> = [];
+    let tasks: Array<{ title: string; prompt?: string; description?: string; refresh?: number }> = [];
     try {
-      const raw = await readFile(TOPICS_CONFIG_PATH, "utf-8");
-      const parsed = JSON.parse(raw) as { topics?: Array<{ title: string; tags?: string[]; prompt?: string; description?: string; refresh?: number }> };
-      topics = Array.isArray(parsed?.topics) ? parsed.topics : [];
+      const raw = await readFile(TASKS_CONFIG_PATH, "utf-8");
+      const parsed = JSON.parse(raw) as {
+        tasks?: Array<{ title: string; prompt?: string; description?: string; refresh?: number }>;
+      };
+      tasks = Array.isArray(parsed?.tasks) ? parsed.tasks : [];
     } catch {
       /* 文件不存在或解析失败，使用空列表 */
     }
-    if (!topics.some((t) => t?.title === "日报")) {
-      topics = [DAILY_TOPIC, ...topics];
-      await writeFile(TOPICS_CONFIG_PATH, JSON.stringify({ topics }, null, 2), "utf-8");
-      logger.info("config", "已添加日报话题至 topics.json");
+    if (!tasks.some((t) => t?.title === "日报")) {
+      tasks = [DAILY_AGENT_TASK, ...tasks];
+      await writeFile(TASKS_CONFIG_PATH, JSON.stringify({ tasks }, null, 2), "utf-8");
+      logger.info("config", "已添加日报任务至 tasks.json");
     }
   } catch (err) {
-    logger.warn("config", "添加日报话题失败", { err: err instanceof Error ? err.message : String(err) });
+    logger.warn("config", "添加日报任务失败", { err: err instanceof Error ? err.message : String(err) });
   }
 }

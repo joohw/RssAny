@@ -370,7 +370,7 @@ export interface ReadFileSandboxArgs {
   limit?: number;
 }
 
-/** read_file：读取沙箱内文件；path 相对 .rssany/sandbox，可选 offset/limit 按行截取（长文档分段读）。 */
+/** sandbox action=read：读取沙箱内文件；path 相对 .rssany/sandbox，可选 offset/limit 按行截取。 */
 export async function readFileSandbox(args: ReadFileSandboxArgs): Promise<
   { content: string; path: string } | { error: string }
 > {
@@ -404,7 +404,7 @@ export interface WriteFileSandboxArgs {
   create_dirs?: boolean;
 }
 
-/** write_file：写入沙箱内文件；path 相对 .rssany/sandbox，存在则覆盖。create_dirs 为 true 时自动创建父目录。 */
+/** sandbox action=write：写入沙箱内文件；path 相对 .rssany/sandbox，存在则覆盖。 */
 export async function writeFileSandbox(args: WriteFileSandboxArgs): Promise<
   { path: string } | { error: string }
 > {
@@ -422,6 +422,58 @@ export async function writeFileSandbox(args: WriteFileSandboxArgs): Promise<
   }
 }
 
+export interface ReplaceInFileSandboxArgs {
+  path: string;
+  old_string: string;
+  new_string: string;
+  /** 1 = 替换每一处；省略或 0 = 仅替换一处，且 old_string 在全文必须唯一匹配 */
+  replace_all?: number;
+}
+
+/** sandbox action=replace：沙箱文件内字面量替换；默认 old_string 全文唯一匹配，replace_all=1 替换全部 */
+export async function replaceInFileSandbox(args: ReplaceInFileSandboxArgs): Promise<
+  { path: string; replaced_count: number } | { error: string }
+> {
+  const resolved = resolveSandboxPath(args.path);
+  if ("error" in resolved) return { error: resolved.error };
+  const oldStr = args.old_string;
+  if (!oldStr.length) return { error: "old_string 不能为空" };
+  const newStr = args.new_string;
+  const replaceAll = args.replace_all === 1;
+  try {
+    const info = await stat(resolved.absolute);
+    if (!info.isFile()) return { error: "路径不是文件" };
+    const raw = await readFile(resolved.absolute, "utf-8");
+    const content = typeof raw === "string" ? raw : String(raw);
+    let next: string;
+    let replacedCount: number;
+    if (replaceAll) {
+      if (!content.includes(oldStr)) return { error: "未找到待替换内容" };
+      const parts = content.split(oldStr);
+      replacedCount = parts.length - 1;
+      next = parts.join(newStr);
+    } else {
+      const first = content.indexOf(oldStr);
+      if (first === -1) return { error: "未找到待替换内容" };
+      const second = content.indexOf(oldStr, first + oldStr.length);
+      if (second !== -1) {
+        return {
+          error:
+            "old_string 在文件中出现多次；请补上更长的唯一片段，或设置 replace_all=1 替换全部",
+        };
+      }
+      next = content.slice(0, first) + newStr + content.slice(first + oldStr.length);
+      replacedCount = 1;
+    }
+    await writeFile(resolved.absolute, next, "utf-8");
+    return { path: args.path, replaced_count: replacedCount };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("ENOENT")) return { error: "文件不存在" };
+    return { error: msg };
+  }
+}
+
 export interface ListDirectorySandboxArgs {
   path?: string;
   recursive?: boolean;
@@ -433,7 +485,7 @@ export interface ListDirectoryEntry {
   path: string;
 }
 
-/** list_directory：列出沙箱内目录；path 相对 .rssany/sandbox，默认 "."。recursive 为 true 时递归列出（path 为相对沙箱的路径）。 */
+/** sandbox action=list：列出沙箱内目录；path 相对 .rssany/sandbox，默认 "."。 */
 export async function listDirectorySandbox(args: ListDirectorySandboxArgs): Promise<
   { entries: ListDirectoryEntry[]; root: string } | { error: string }
 > {

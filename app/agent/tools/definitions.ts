@@ -60,6 +60,12 @@ interface ToolDef<TArgs = Record<string, unknown>> {
   run: (args: TArgs) => Promise<{ content: [{ type: "text"; text: string }]; details?: unknown; isError?: boolean }>;
 }
 
+type ToolRunResult = Awaited<ReturnType<ToolDef["run"]>>;
+
+function toolTextContent(text: string): [{ type: "text"; text: string }] {
+  return [{ type: "text" as const, text }] as [{ type: "text"; text: string }];
+}
+
 const toolDefs: ToolDef[] = [
   {
     name: "list_channels",
@@ -249,97 +255,151 @@ const toolDefs: ToolDef[] = [
     },
   },
   {
-    name: "read_file",
-    label: "Read file",
+    name: "sandbox",
+    label: "Sandbox",
     description:
-      "Read a file from the sandbox (.rssany/sandbox). Path is relative to sandbox root. Use offset/limit to read long documents in chunks (line-based).",
+      "Read, write, search-replace, or list files under .rssany/sandbox only. Use action: read (path; optional encoding, offset/limit in lines for long files), write (path, content; optional create_dirs), replace (path, old_string, new_string; unique match by default, or replace_all=1), list (optional path default '.', optional recursive=1).",
     params: {
-      path: { type: "string", description: "File path relative to .rssany/sandbox (e.g. notes/draft.md)" },
-      encoding: { type: "string", optional: true, description: "Encoding (default utf-8)" },
-      offset: { type: "number", optional: true, minimum: 0, description: "Skip this many lines from the start (for chunked reading)" },
-      limit: { type: "number", optional: true, minimum: 1, maximum: 10000, description: "Max lines to return (for long docs)" },
-    },
-    run: async (args) => {
-      const a = args as { path: string; encoding?: string; offset?: number; limit?: number };
-      const result = await fn.readFileSandbox({
-        path: a.path,
-        encoding: a.encoding,
-        offset: a.offset,
-        limit: a.limit,
-      });
-      if ("error" in result) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: result.error }) }],
-          details: result,
-          isError: true,
-        };
-      }
-      return {
-        content: [{ type: "text" as const, text: result.content }],
-        details: { path: result.path, length: result.content.length },
-      };
-    },
-  },
-  {
-    name: "write_file",
-    label: "Write file",
-    description:
-      "Write content to a file in the sandbox (.rssany/sandbox). Path is relative to sandbox. Creates parent directories if needed. Overwrites existing file.",
-    params: {
-      path: { type: "string", description: "File path relative to .rssany/sandbox (e.g. notes/draft.md)" },
-      content: { type: "string", description: "Full file content to write" },
+      action: {
+        type: "string",
+        minLength: 1,
+        description: "One of: read, write, replace, list",
+      },
+      path: {
+        type: "string",
+        optional: true,
+        description: "Relative to sandbox; required for read, write, replace; for list omit or use '.' for root",
+      },
+      encoding: { type: "string", optional: true, description: "read: encoding (default utf-8)" },
+      offset: { type: "number", optional: true, minimum: 0, description: "read: skip first N lines" },
+      limit: { type: "number", optional: true, minimum: 1, maximum: 10000, description: "read: max lines to return" },
+      content: { type: "string", optional: true, description: "write: full file body (may be empty string)" },
       create_dirs: {
         type: "number",
         optional: true,
-        description: "1 to create parent dirs (default), 0 to fail if parent missing",
+        description: "write: 1 create parent dirs (default), 0 fail if parent missing",
       },
+      old_string: { type: "string", optional: true, description: "replace: literal to find (non-empty)" },
+      new_string: { type: "string", optional: true, description: "replace: replacement; omit for empty" },
+      replace_all: {
+        type: "number",
+        optional: true,
+        description: "replace: 1 = all occurrences; else exactly one match required",
+      },
+      recursive: { type: "number", optional: true, description: "list: 1 = recursive" },
     },
-    run: async (args) => {
-      const a = args as { path: string; content: string; create_dirs?: number };
-      const result = await fn.writeFileSandbox({
-        path: a.path,
-        content: a.content,
-        create_dirs: a.create_dirs !== 0,
+    run: async (args): Promise<ToolRunResult> => {
+      const a = args as {
+        action: string;
+        path?: string;
+        encoding?: string;
+        offset?: number;
+        limit?: number;
+        content?: string;
+        create_dirs?: number;
+        old_string?: string;
+        new_string?: string;
+        replace_all?: number;
+        recursive?: number;
+      };
+      const action = String(a.action ?? "")
+        .trim()
+        .toLowerCase();
+      const err = (msg: string): ToolRunResult => ({
+        content: toolTextContent(JSON.stringify({ error: msg })),
+        details: { error: msg },
+        isError: true,
       });
-      if ("error" in result) {
+
+      if (action === "read") {
+        const path = a.path?.trim();
+        if (!path) return err("read 需要 path");
+        const result = await fn.readFileSandbox({
+          path,
+          encoding: a.encoding,
+          offset: a.offset,
+          limit: a.limit,
+        });
+        if ("error" in result) {
+          return {
+            content: toolTextContent(JSON.stringify({ error: result.error })),
+            details: result,
+            isError: true,
+          };
+        }
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: result.error }) }],
-          details: result,
-          isError: true,
+          content: toolTextContent(result.content),
+          details: { path: result.path, length: result.content.length },
         };
       }
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({ path: result.path }) }],
-        details: result,
-      };
-    },
-  },
-  {
-    name: "list_directory",
-    label: "List directory",
-    description:
-      "List entries in a directory inside the sandbox (.rssany/sandbox). Path defaults to '.' (sandbox root). Use recursive=true to list subdirectories.",
-    params: {
-      path: { type: "string", optional: true, description: "Directory path relative to sandbox (default '.')" },
-      recursive: { type: "number", optional: true, description: "1 to list recursively, 0 or omit for top-level only" },
-    },
-    run: async (args) => {
-      const a = args as { path?: string; recursive?: number };
-      const result = await fn.listDirectorySandbox({
-        path: a.path,
-        recursive: a.recursive === 1,
-      });
-      if ("error" in result) {
+
+      if (action === "write") {
+        const path = a.path?.trim();
+        if (!path) return err("write 需要 path");
+        if (typeof a.content !== "string") return err("write 需要 content（字符串，可为空）");
+        const result = await fn.writeFileSandbox({
+          path,
+          content: a.content,
+          create_dirs: a.create_dirs !== 0,
+        });
+        if ("error" in result) {
+          return {
+            content: toolTextContent(JSON.stringify({ error: result.error })),
+            details: result,
+            isError: true,
+          };
+        }
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: result.error }) }],
+          content: toolTextContent(JSON.stringify({ path: result.path })),
           details: result,
-          isError: true,
         };
       }
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({ entries: result.entries, root: result.root }, null, 2) }],
-        details: result,
-      };
+
+      if (action === "replace") {
+        const path = a.path?.trim();
+        if (!path) return err("replace 需要 path");
+        const oldS = a.old_string;
+        if (typeof oldS !== "string" || !oldS.length) return err("replace 需要非空的 old_string");
+        const newS = typeof a.new_string === "string" ? a.new_string : "";
+        const result = await fn.replaceInFileSandbox({
+          path,
+          old_string: oldS,
+          new_string: newS,
+          replace_all: a.replace_all,
+        });
+        if ("error" in result) {
+          return {
+            content: toolTextContent(JSON.stringify({ error: result.error })),
+            details: result,
+            isError: true,
+          };
+        }
+        return {
+          content: toolTextContent(JSON.stringify({ path: result.path, replaced_count: result.replaced_count })),
+          details: result,
+        };
+      }
+
+      if (action === "list") {
+        const path = a.path?.trim() || ".";
+        const result = await fn.listDirectorySandbox({
+          path,
+          recursive: a.recursive === 1,
+        });
+        if ("error" in result) {
+          return {
+            content: toolTextContent(JSON.stringify({ error: result.error })),
+            details: result,
+            isError: true,
+          };
+        }
+        return {
+          content: toolTextContent(JSON.stringify({ entries: result.entries, root: result.root }, null, 2)),
+          details: result,
+        };
+      }
+
+      return err(`未知 action「${a.action}」，应为 read、write、replace 或 list`);
     },
   },
 ];

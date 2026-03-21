@@ -4,11 +4,11 @@
   import { goto } from '$app/navigation';
   import { fetchJson } from '$lib/fetchJson.js';
 
-  const PENDING_KEY = 'topic-generate-pending';
+  const PENDING_KEY = 'agent-task-generate-pending';
   let generateAborted = false;
   onDestroy(() => { generateAborted = true; });
 
-  $: topic = decodeURIComponent($page.params.topic ?? '');
+  $: topic = decodeURIComponent($page.params.task ?? '');
 
   let dates: string[] = [];
   let loading = true;
@@ -20,7 +20,7 @@
   async function fetchDates(): Promise<string[]> {
     if (!topic) return [];
     const data = await fetchJson<{ dates: string[] }>(
-      `/api/topics/${encodeURIComponent(topic)}/dates`
+      `/api/agent-tasks/${encodeURIComponent(topic)}/dates`
     );
     return data?.dates ?? [];
   }
@@ -72,7 +72,7 @@
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'topic-generate', topicKey: topic, force }),
+          body: JSON.stringify({ type: 'agent-task-generate', taskKey: topic, force }),
         }
       );
       const taskId = submitRes?.taskId;
@@ -105,7 +105,7 @@
   }
 
   function openArticle(date: string) {
-    goto(`/topics/${encodeURIComponent(topic)}/${encodeURIComponent(date)}`);
+    goto(`/agent-tasks/${encodeURIComponent(topic)}/${encodeURIComponent(date)}`);
   }
 
   onMount(() => {
@@ -118,7 +118,7 @@
 </script>
 
 <svelte:head>
-  <title>报告列表 · {topic} - 话题追踪 - RssAny</title>
+  <title>报告列表 · {topic} - 任务 - RssAny</title>
 </svelte:head>
 
 <div class="wrap">
@@ -126,9 +126,9 @@
     <div class="header">
       <div class="header-left">
         <div class="breadcrumb">
-          <a href="/topics" class="breadcrumb-link">话题</a>
+          <a href="/agent-tasks" class="breadcrumb-link">任务</a>
           <span class="breadcrumb-sep">/</span>
-          <a href="/topics/{encodeURIComponent(topic)}" class="breadcrumb-link">{topic}</a>
+          <a href="/agent-tasks/{encodeURIComponent(topic)}" class="breadcrumb-link">{topic}</a>
           <span class="breadcrumb-sep">/</span>
           <span class="breadcrumb-current">报告列表</span>
         </div>
@@ -167,7 +167,7 @@
           {#each dates as date (date)}
             <li>
               <a
-                href="/topics/{encodeURIComponent(topic)}/{encodeURIComponent(date)}"
+                href="/agent-tasks/{encodeURIComponent(topic)}/{encodeURIComponent(date)}"
                 class="article-link"
                 on:click|preventDefault={() => openArticle(date)}
               >

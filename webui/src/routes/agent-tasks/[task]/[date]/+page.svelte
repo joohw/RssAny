@@ -4,7 +4,7 @@
   import { marked } from 'marked';
   import { fetchJson } from '$lib/fetchJson.js';
 
-  const PENDING_KEY = 'topic-generate-pending';
+  const PENDING_KEY = 'agent-task-generate-pending';
   let generateAborted = false;
   onDestroy(() => { generateAborted = true; });
 
@@ -27,7 +27,7 @@
     return out;
   }
 
-  $: topic = decodeURIComponent($page.params.topic ?? '');
+  $: topic = decodeURIComponent($page.params.task ?? '');
   $: dateParam = $page.params.date ?? '';
 
   let dates: string[] = [];
@@ -42,7 +42,7 @@
   async function fetchDates(): Promise<string[]> {
     if (!topic) return [];
     const data = await fetchJson<{ dates: string[] }>(
-      `/api/topics/${encodeURIComponent(topic)}/dates`
+      `/api/agent-tasks/${encodeURIComponent(topic)}/dates`
     );
     return data?.dates ?? [];
   }
@@ -55,7 +55,7 @@
     html = '';
     try {
       const data = await fetchJson<{ content: string | null; date: string | null }>(
-        `/api/topics/${encodeURIComponent(topic)}?date=${encodeURIComponent(dateParam)}`
+        `/api/agent-tasks/${encodeURIComponent(topic)}?date=${encodeURIComponent(dateParam)}`
       );
       content = data?.content ?? null;
       if (content) {
@@ -112,7 +112,7 @@
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'topic-generate', topicKey: topic, force }),
+          body: JSON.stringify({ type: 'agent-task-generate', taskKey: topic, force }),
         }
       );
       const taskId = submitRes?.taskId;
@@ -158,7 +158,7 @@
 </script>
 
 <svelte:head>
-  <title>{dateParam} · {topic} - 话题追踪 - RssAny</title>
+  <title>{dateParam} · {topic} - 任务 - RssAny</title>
 </svelte:head>
 
 <div class="wrap">
@@ -166,9 +166,9 @@
     <div class="header">
       <div class="header-left">
         <div class="breadcrumb">
-          <a href="/topics" class="breadcrumb-link">话题</a>
+          <a href="/agent-tasks" class="breadcrumb-link">任务</a>
           <span class="breadcrumb-sep">/</span>
-          <a href="/topics/{encodeURIComponent(topic)}/list" class="breadcrumb-link">{topic}</a>
+          <a href="/agent-tasks/{encodeURIComponent(topic)}/list" class="breadcrumb-link">{topic}</a>
           <span class="breadcrumb-sep">/</span>
           <span class="breadcrumb-current">{dateParam}</span>
         </div>
@@ -176,7 +176,7 @@
           <div class="nav-bar">
             {#if prevDate}
               <a
-                href="/topics/{encodeURIComponent(topic)}/{encodeURIComponent(prevDate)}"
+                href="/agent-tasks/{encodeURIComponent(topic)}/{encodeURIComponent(prevDate)}"
                 class="nav-btn"
                 title="上一篇"
               >上一篇</a>
@@ -185,7 +185,7 @@
             {/if}
             {#if nextDate}
               <a
-                href="/topics/{encodeURIComponent(topic)}/{encodeURIComponent(nextDate)}"
+                href="/agent-tasks/{encodeURIComponent(topic)}/{encodeURIComponent(nextDate)}"
                 class="nav-btn"
                 title="下一篇"
               >下一篇</a>
@@ -210,7 +210,7 @@
       {:else if !content}
         <div class="state empty">
           <p>该日报告不存在</p>
-          <a href="/topics/{encodeURIComponent(topic)}/list">返回 {topic} 报告列表</a>
+          <a href="/agent-tasks/{encodeURIComponent(topic)}/list">返回 {topic} 报告列表</a>
           {#if generateNotice}
             <p class="gen-notice">{generateNotice}</p>
           {/if}
